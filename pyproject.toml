@@ -1,12 +1,13 @@
 [tool.poetry]
 name = "aws-sg-finder"
-version = "0.1.0"
+version = "0.1.2"
 description = ""
 authors = ["Matt Milligan <rmilligan@vertafore.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
-boto3 = "^1.17.25"
+boto3 = "^1.17.30"
+pylint = "^2.7.2"
 
 [tool.poetry.dev-dependencies]
 
