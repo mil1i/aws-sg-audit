@@ -4,203 +4,235 @@ import boto3
 import argparse
 import os
 
-try:
-    default_region = os.environ["AWS_DEFAULT_REGION"]
-except KeyError:
-    default_region = "us-east-1"
 
-
-def lookup_by_id(sgid):
-    sg = ec2.get_all_security_groups(group_ids=sgid)
+def lookup_by_id(clresource, sgid):
+    sg = clresource.get_all_security_groups(group_ids=sgid)
     return sg[0].name
 
 
-session = boto3.Session(profile_name='qq-readonly')
-
-# Get a full list of the available regions
-client = session.client('ec2')
-regions_dict = client.describe_regions()
-region_list = [region['RegionName'] for region in regions_dict['Regions']]
-
-# Parse arguments
-parser = argparse.ArgumentParser(description="Show unused security groups")
-parser.add_argument("-r", "--region", type=str, default="us-east-1",
-                    help="The default region is us-east-1. The list of available regions are as follows: "
-                         f"{sorted(region_list)}")
-parser.add_argument("-d", "--delete", help="delete security groups from AWS", action="store_true")
-args = parser.parse_args()
-
-client = session.client('ec2', region_name=args.region)
-ec2 = session.resource('ec2', region_name=args.region)
-all_groups = []
-security_groups_in_use = []
-bad_ports = [20, 21, 1433, 1434, 3306, 3389, 4333, 5432, 5500]
-security_groups_with_bad_ports = []
-bad_port_security_groups_in_use = []
-
-# Get ALL security groups names
-security_groups_dict = client.describe_security_groups()
-security_groups = security_groups_dict['SecurityGroups']
-for groupobj in security_groups:
-    if groupobj['GroupName'] == 'default' or groupobj['GroupName'].startswith('d-') or groupobj['GroupName'].startswith(
-            'AWS-OpsWorks-'):
-        security_groups_in_use.append(groupobj['GroupId'])
-    for perm in groupobj['IpPermissions']:
-        try:
-            if perm['FromPort'] == perm['ToPort']:
-                if perm['ToPort'] in bad_ports and '0.0.0.0/0' in [ip['CidrIp'] for ip in perm['IpRanges']]:
-                    security_groups_with_bad_ports.append(groupobj['GroupId'])
-            elif any([bp in range(perm['FromPort'], perm['ToPort']) for bp in bad_ports]) and '0.0.0.0/0' in [ip['CidrIp'] for ip in perm['IpRanges']]:
-                security_groups_with_bad_ports.append(groupobj['GroupId'])
-        except KeyError:
-            if perm['IpProtocol'] == '-1' and '0.0.0.0/0' in [ip['CidrIp'] for ip in perm['IpRanges']]:
-                security_groups_with_bad_ports.append(groupobj['GroupId'])
-    all_groups.append(groupobj['GroupId'])
-
-# Get all security groups used by instances
-instances_dict = client.describe_instances()
-reservations = instances_dict['Reservations']
-network_interface_count = 0
-
-for i in reservations:
-    for j in i['Instances']:
-        for k in j['SecurityGroups']:
-            if k['GroupId'] not in security_groups_in_use:
-                security_groups_in_use.append(k['GroupId'])
-            if k['GroupId'] in security_groups_with_bad_ports and k['GroupId'] not in bad_port_security_groups_in_use:
-                bad_port_security_groups_in_use.append(k['GroupId'])
-
-# Security Groups in use by Network Interfaces
-eni_client = session.client('ec2', region_name=args.region)
-eni_dict = eni_client.describe_network_interfaces()
-for i in eni_dict['NetworkInterfaces']:
-    for j in i['Groups']:
-        if j['GroupId'] not in security_groups_in_use:
-            security_groups_in_use.append(j['GroupId'])
-        if j['GroupId'] in security_groups_with_bad_ports and j['GroupId'] not in bad_port_security_groups_in_use:
-            bad_port_security_groups_in_use.append(j['GroupId'])
-
-# Security groups used by classic ELBs
-elb_client = session.client('elb', region_name=args.region)
-elb_dict = elb_client.describe_load_balancers()
-for i in elb_dict['LoadBalancerDescriptions']:
-    for j in i['SecurityGroups']:
-        if j not in security_groups_in_use:
-            security_groups_in_use.append(j)
-        if j in security_groups_with_bad_ports and j not in bad_port_security_groups_in_use:
-            bad_port_security_groups_in_use.append(j)
-
-# Security groups used by ALBs
-elb2_client = session.client('elbv2', region_name=args.region)
-elb2_dict = elb2_client.describe_load_balancers()
-for i in elb2_dict['LoadBalancers']:
+def main():
     try:
-        # if i['Type'] == 'network':
-        #     continue
-        for j in i['SecurityGroups']:
-            if j not in security_groups_in_use:
-                security_groups_in_use.append(j)
-            if j in security_groups_with_bad_ports and j not in bad_port_security_groups_in_use:
-                bad_port_security_groups_in_use.append(j)
+        default_region = os.environ["AWS_DEFAULT_REGION"]
     except KeyError:
-        pass
+        default_region = "us-east-1"
 
-# Security groups used by RDS
-rds_client = session.client('rds', region_name=args.region)
-rds_dict = rds_client.describe_db_instances()
-for i in rds_dict['DBInstances']:
-    for j in i['VpcSecurityGroups']:
-        if j['VpcSecurityGroupId'] not in security_groups_in_use:
-            security_groups_in_use.append(j['VpcSecurityGroupId'])
-        if j['VpcSecurityGroupId'] in security_groups_with_bad_ports and j['VpcSecurityGroupId'] not in bad_port_security_groups_in_use:
-            bad_port_security_groups_in_use.append(j['VpcSecurityGroupId'])
+    session = boto3.Session(profile_name='qq-readonly')
+    # Get a full list of the available regions
+    tmpClient = session.client('ec2')
+    regions_dict = tmpClient.describe_regions()
+    region_list = [region['RegionName'] for region in regions_dict['Regions']]
 
-# Security groups used by Lambdas
-lambda_client = session.client('lambda', region_name=args.region)
-lambda_functions = lambda_client.list_functions()
-while True:
-    if "NextMarker" in lambda_functions:
-        nextMarker = lambda_functions["NextMarker"]
-    else:
-        nextMarker = ""
-    for function in lambda_functions["Functions"]:
-        functionName = function["FunctionName"]
-        # print("FunctionName: " + functionName)
-        functionVpcConfig = ""
-        functionSecurityGroupIds = ""
-        try:
-            functionVpcConfig = function["VpcConfig"]
-            functionSecurityGroupIds = functionVpcConfig["SecurityGroupIds"]
-            for j in functionSecurityGroupIds:
-                if j not in security_groups_in_use:
-                    security_groups_in_use.append(j)
-                if j in security_groups_with_bad_ports and j not in bad_port_security_groups_in_use:
-                    bad_port_security_groups_in_use.append(j)
-        except KeyError:
-            continue
-        # finally:
-        #     print(functionSecurityGroupIds)
-    if nextMarker == "":
-        break
-    else:
-        lambda_functions = lambda_client.list_functions(Marker=nextMarker)
+    # Parse arguments
+    parser = argparse.ArgumentParser(description="Show unused security groups")
+    parser.add_argument("-r", "--region", type=str, default="us-east-1",
+                        help="The default region is us-east-1. The list of available regions are as follows: "
+                             f"{sorted(region_list)}")
+    parser.add_argument("-d", "--delete", help="delete security groups from AWS", action="store_true")
+    args = parser.parse_args()
 
-delete_candidates = []
-bad_group_delete_candidates = []
-for group in all_groups:
-    if group not in security_groups_in_use:
-        delete_candidates.append(group)
+    client = session.client('ec2', region_name=args.region)
+    ec2 = session.resource('ec2', region_name=args.region)
 
-for group in security_groups_with_bad_ports:
-    if group not in bad_port_security_groups_in_use:
-        bad_group_delete_candidates.append(group)
+    bad_ports = [20, 21, 1433, 1434, 3306, 3389, 4333, 5432, 5500]
+    all_groups, used_groups, bad_groups = get_all_security_groups(client, bad_ports)
+    used_bad_groups = []
+    used_groups, used_bad_groups, reservations = get_instance_security_groups(client, used_groups, bad_groups, used_bad_groups)
+    used_groups, used_bad_groups, eni_count = get_eni_security_groups(client, used_groups, bad_groups, used_bad_groups)
+    used_groups, used_bad_groups, clb_count = get_clb_security_groups(session, args.region, used_groups, bad_groups, used_bad_groups)
+    used_groups, used_bad_groups, alb_count = get_alb_security_groups(session, args.region, used_groups, bad_groups, used_bad_groups)
+    used_groups, used_bad_groups, rds_count = get_rds_security_groups(session, args.region, used_groups, bad_groups, used_bad_groups)
+    used_groups, used_bad_groups, lambda_count = get_lambda_security_groups(session, args.region, used_groups, bad_groups, used_bad_groups)
 
-if args.delete:
-    print("We will now delete security groups identified to not be in use.")
-    for group in delete_candidates:
-        security_group = ec2.SecurityGroup(group)
-        try:
-            print("delete option commented out")
-            # security_group.delete()
-        except Exception as e:
-            print(e)
-            print(f"{security_group.group_name} requires manual remediation.")
-else:
-    print("The list of security groups to be removed is below.")
-    print("Run this again with `-d` to remove them")
-    for group in sorted(delete_candidates):
-        print("   " + group)
-    print("---------------")
-    print("List of bad security groups in use:")
-    print("---------------")
-    for group in sorted(set(bad_port_security_groups_in_use)):
-        print("   " + group)
-    print("---------------")
-    print("List of bad security groups NOT used:")
-    print("---------------")
-    for group in sorted(set(bad_group_delete_candidates)):
-        print("   " + group)
+    sg_delete_candidates = []
+    bad_sg_delete_candidates = []
+    for unusedgroup in all_groups:
+        if unusedgroup not in used_groups:
+            sg_delete_candidates.append(unusedgroup)
 
+    for unusedbadgroup in bad_groups:
+        if unusedbadgroup not in used_bad_groups:
+            bad_sg_delete_candidates.append(unusedbadgroup)
 
-if len(delete_candidates) > 0:
-    print("---------------")
-    print("Activity Report")
-    print("---------------")
-
-    print(u"Total number of Security Groups evaluated: {0:d}".format(len(all_groups)))
-    print(u"Total number of EC2 Instances evaluated: {0:d}".format(len(reservations)))
-    print(u"Total number of Load Balancers evaluated: {0:d}".format(len(elb_dict['LoadBalancerDescriptions']) +
-                                                                    len(elb2_dict['LoadBalancers'])))
-    print(u"Total number of RDS Instances evaluated: {0:d}".format(len(rds_dict['DBInstances'])))
-    print(u"Total number of Network Interfaces evaluated: {0:d}".format(len(eni_dict['NetworkInterfaces'])))
-    print(u"Total number of Security Groups in-use evaluated: {0:d}".format(len(security_groups_in_use)))
-    print(u"Total number of Bad Security Groups in-use evaluated: {0:d}".format(len(set(bad_port_security_groups_in_use))))
     if args.delete:
-        print(u"Total number of Unused Security Groups deleted: {0:d}".format(len(delete_candidates)))
-        print(u"Total number of Unused Bad Security Groups deleted: {0:d}".format(len(set(bad_group_delete_candidates))))
+        print("We will now delete security groups identified to not be in use.")
+        for group in sg_delete_candidates:
+            security_group = ec2.SecurityGroup(group)
+            try:
+                print("delete option commented out")
+                # security_group.delete()
+            except Exception as e:
+                print(e)
+                print(f"{security_group.group_name} requires manual remediation.")
     else:
-        print(u"Total number of Unused Security Groups targeted for removal: {0:d}".format(len(delete_candidates)))
-        print(u"Total number of Unused Bad Security Groups targeted for removal: {0:d}".format(len(set(bad_group_delete_candidates))))
+        print("The list of security groups to be removed is below.")
+        print("Run this again with `-d` to remove them")
+        for group in sorted(sg_delete_candidates):
+            print("   " + group)
+        print("---------------")
+        print("List of bad security groups in use:")
+        print("---------------")
+        for group in sorted(set(used_bad_groups)):
+            print("   " + group)
+        print("---------------")
+        print("List of bad security groups NOT used:")
+        print("---------------")
+        for group in sorted(set(bad_sg_delete_candidates)):
+            print("   " + group)
 
-        # For each security group in the total list, if not in the "used" list, flag for deletion
-        # If running with a "--delete" flag, delete the ones flagged.
+    if len(sg_delete_candidates) > 0:
+        print("---------------")
+        print("Activity Report")
+        print("---------------")
+
+        print(u"Total number of Security Groups evaluated: {0:d}".format(len(all_groups)))
+        print(u"Total number of EC2 Instances evaluated: {0:d}".format(len(reservations)))
+        print(u"Total number of Load Balancers evaluated: {0:d}".format(len(clb_count) + len(alb_count)))
+        print(u"Total number of RDS Instances evaluated: {0:d}".format(len(rds_count)))
+        print(u"Total number of Network Interfaces evaluated: {0:d}".format(len(eni_count)))
+        print(u"Total number of Lambda Functions evaluated: {0:d}".format(len(lambda_count)))
+        print(u"Total number of Security Groups in-use evaluated: {0:d}".format(len(used_groups)))
+        print(u"Total number of Bad Security Groups in-use evaluated: {0:d}".format(
+            len(set(used_bad_groups))))
+        if args.delete:
+            print(u"Total number of Unused Security Groups deleted: {0:d}".format(len(sg_delete_candidates)))
+            print(u"Total number of Unused Bad Security Groups deleted: {0:d}".format(
+                len(set(bad_sg_delete_candidates))))
+        else:
+            print(u"Total number of Unused Security Groups targeted for removal: {0:d}".format(len(sg_delete_candidates)))
+            print(u"Total number of Unused Bad Security Groups targeted for removal: {0:d}".format(
+                len(set(bad_sg_delete_candidates))))
+
+            # For each security group in the total list, if not in the "used" list, flag for deletion
+            # If running with a "--delete" flag, delete the ones flagged.
+
+
+def get_all_security_groups(cl, badports):
+    # Get ALL security groups names
+    security_groups_dict = cl.describe_security_groups()
+    security_groups = security_groups_dict['SecurityGroups']
+    all_security_groups = []
+    used_security_groups = []
+    badports_security_groups = []
+    for groupobj in security_groups:
+        if groupobj['GroupName'] == 'default' or groupobj['GroupName'].startswith('d-') \
+                or groupobj['GroupName'].startswith('AWS-OpsWorks-'):
+            used_security_groups.append(groupobj['GroupId'])
+        for perm in groupobj['IpPermissions']:
+            try:
+                if perm['FromPort'] == perm['ToPort']:
+                    if perm['ToPort'] in badports and '0.0.0.0/0' in [ip['CidrIp'] for ip in perm['IpRanges']]:
+                        badports_security_groups.append(groupobj['GroupId'])
+                elif any([bp in range(perm['FromPort'], perm['ToPort']) for bp in badports]) \
+                        and '0.0.0.0/0' in [ip['CidrIp'] for ip in perm['IpRanges']]:
+                    badports_security_groups.append(groupobj['GroupId'])
+            except KeyError:
+                if perm['IpProtocol'] == '-1' and '0.0.0.0/0' in [ip['CidrIp'] for ip in perm['IpRanges']]:
+                    badports_security_groups.append(groupobj['GroupId'])
+        all_security_groups.append(groupobj['GroupId'])
+    return all_security_groups, used_security_groups, badports_security_groups
+
+
+def add_to_groups_in_use(sg, usedsgs):
+    if sg not in usedsgs:
+        usedsgs.append(sg)
+
+
+def find_bad_security_groups(sg, all_badsgs, used_badsgs):
+    if sg in all_badsgs and sg not in used_badsgs:
+        used_badsgs.append(sg)
+
+
+def get_instance_security_groups(cl, used_sgs, all_bp_sgs, used_bp_sgs):
+    # Get all security groups used by instances
+    instances_dict = cl.describe_instances()
+    reservations = instances_dict['Reservations']
+
+    for i in reservations:
+        for j in i['Instances']:
+            for k in j['SecurityGroups']:
+                add_to_groups_in_use(k['GroupId'], used_sgs)
+                find_bad_security_groups(k['GroupId'], all_bp_sgs, used_bp_sgs)
+    return used_sgs, used_bp_sgs, reservations
+
+
+def get_eni_security_groups(cl, used_sgs, all_bp_sgs, used_bp_sgs):
+    # Security Groups in use by Network Interfaces
+    eni_dict = cl.describe_network_interfaces()
+    for i in eni_dict['NetworkInterfaces']:
+        for j in i['Groups']:
+            add_to_groups_in_use(j['GroupId'], used_sgs)
+            find_bad_security_groups(j['GroupId'], all_bp_sgs, used_bp_sgs)
+    return used_sgs, used_bp_sgs, eni_dict['NetworkInterfaces']
+
+
+def get_clb_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
+    # Security groups used by classic ELBs
+    elb_client = sesh.client('elb', region_name=region)
+    elb_dict = elb_client.describe_load_balancers()
+    for i in elb_dict['LoadBalancerDescriptions']:
+        for j in i['SecurityGroups']:
+            add_to_groups_in_use(j, used_sgs)
+            find_bad_security_groups(j, all_bp_sgs, used_bp_sgs)
+    return used_sgs, used_bp_sgs, elb_dict['LoadBalancerDescriptions']
+
+
+def get_alb_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
+    # Security groups used by ALBs
+    elb2_client = sesh.client('elbv2', region_name=region)
+    elb2_dict = elb2_client.describe_load_balancers()
+    for i in elb2_dict['LoadBalancers']:
+        try:
+            # if i['Type'] == 'network':
+            #     continue
+            for j in i['SecurityGroups']:
+                add_to_groups_in_use(j, used_sgs)
+                find_bad_security_groups(j, all_bp_sgs, used_bp_sgs)
+        except KeyError:
+            pass
+    return used_sgs, used_bp_sgs, elb2_dict['LoadBalancers']
+
+
+def get_rds_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
+    # Security groups used by RDS
+    rds_client = sesh.client('rds', region_name=region)
+    rds_dict = rds_client.describe_db_instances()
+    for i in rds_dict['DBInstances']:
+        for j in i['VpcSecurityGroups']:
+            add_to_groups_in_use(j['VpcSecurityGroupId'], used_sgs)
+            find_bad_security_groups(j['VpcSecurityGroupId'], all_bp_sgs, used_bp_sgs)
+    return used_sgs, used_bp_sgs, rds_dict['DBInstances']
+
+
+def get_lambda_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
+    # Security groups used by Lambdas
+    lambda_client = sesh.client('lambda', region_name=region)
+    lambda_functions = lambda_client.list_functions()
+    while True:
+        if "NextMarker" in lambda_functions:
+            nextMarker = lambda_functions["NextMarker"]
+        else:
+            nextMarker = ""
+        for function in lambda_functions["Functions"]:
+            functionName = function["FunctionName"]
+            # print("FunctionName: " + functionName)
+            functionVpcConfig = ""
+            functionSecurityGroupIds = ""
+            try:
+                functionVpcConfig = function["VpcConfig"]
+                functionSecurityGroupIds = functionVpcConfig["SecurityGroupIds"]
+                for j in functionSecurityGroupIds:
+                    add_to_groups_in_use(j, used_sgs)
+                    find_bad_security_groups(j, all_bp_sgs, used_bp_sgs)
+            except KeyError:
+                continue
+            # finally:
+            #     print(functionSecurityGroupIds)
+        if nextMarker == "":
+            break
+        else:
+            lambda_functions = lambda_client.list_functions(Marker=nextMarker)
+    return used_sgs, used_bp_sgs, lambda_functions["Functions"]
+
+
+if __name__ == "__main__":
+    main()
