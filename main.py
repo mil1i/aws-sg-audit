@@ -5,11 +5,6 @@ import argparse
 import os
 
 
-def lookup_by_id(clresource, sgid):
-    sg = clresource.get_all_security_groups(group_ids=sgid)
-    return sg[0].name
-
-
 def main():
     try:
         default_region = os.environ["AWS_DEFAULT_REGION"]
@@ -24,24 +19,28 @@ def main():
 
     # Parse arguments
     parser = argparse.ArgumentParser(description="Show unused security groups")
-    parser.add_argument("-r", "--region", type=str, default="us-east-1",
+    parser.add_argument("-r", "--region", type=str, default=default_region,
                         help="The default region is us-east-1. The list of available regions are as follows: "
                              f"{sorted(region_list)}")
     parser.add_argument("-d", "--delete", help="delete security groups from AWS", action="store_true")
     args = parser.parse_args()
 
-    client = session.client('ec2', region_name=args.region)
-    ec2 = session.resource('ec2', region_name=args.region)
-
     bad_ports = [20, 21, 1433, 1434, 3306, 3389, 4333, 5432, 5500]
-    all_groups, used_groups, bad_groups = get_all_security_groups(client, bad_ports)
+    all_groups, used_groups, bad_groups = get_all_security_groups(session, args.region, bad_ports)
     used_bad_groups = []
-    used_groups, used_bad_groups, reservations = get_instance_security_groups(client, used_groups, bad_groups, used_bad_groups)
-    used_groups, used_bad_groups, eni_count = get_eni_security_groups(client, used_groups, bad_groups, used_bad_groups)
-    used_groups, used_bad_groups, clb_count = get_clb_security_groups(session, args.region, used_groups, bad_groups, used_bad_groups)
-    used_groups, used_bad_groups, alb_count = get_alb_security_groups(session, args.region, used_groups, bad_groups, used_bad_groups)
-    used_groups, used_bad_groups, rds_count = get_rds_security_groups(session, args.region, used_groups, bad_groups, used_bad_groups)
-    used_groups, used_bad_groups, lambda_count = get_lambda_security_groups(session, args.region, used_groups, bad_groups, used_bad_groups)
+
+    used_groups, used_bad_groups, instance_count = get_instance_security_groups(session, args.region, used_groups,
+                                                                                bad_groups, used_bad_groups)
+    used_groups, used_bad_groups, eni_count = get_eni_security_groups(session, args.region, used_groups,
+                                                                      bad_groups, used_bad_groups)
+    used_groups, used_bad_groups, clb_count = get_clb_security_groups(session, args.region, used_groups,
+                                                                      bad_groups, used_bad_groups)
+    used_groups, used_bad_groups, alb_count = get_alb_security_groups(session, args.region, used_groups,
+                                                                      bad_groups, used_bad_groups)
+    used_groups, used_bad_groups, rds_count = get_rds_security_groups(session, args.region, used_groups,
+                                                                      bad_groups, used_bad_groups)
+    used_groups, used_bad_groups, lambda_count = get_lambda_security_groups(session, args.region, used_groups,
+                                                                            bad_groups, used_bad_groups)
 
     sg_delete_candidates = []
     bad_sg_delete_candidates = []
@@ -56,7 +55,8 @@ def main():
     if args.delete:
         print("We will now delete security groups identified to not be in use.")
         for group in sg_delete_candidates:
-            security_group = ec2.SecurityGroup(group)
+            ec2resource = session.resource('ec2', region_name=args.region)
+            security_group = ec2resource.SecurityGroup(group)
             try:
                 print("delete option commented out")
                 # security_group.delete()
@@ -85,7 +85,7 @@ def main():
         print("---------------")
 
         print(u"Total number of Security Groups evaluated: {0:d}".format(len(all_groups)))
-        print(u"Total number of EC2 Instances evaluated: {0:d}".format(len(reservations)))
+        print(u"Total number of EC2 Instances evaluated: {0:d}".format(instance_count))
         print(u"Total number of Load Balancers evaluated: {0:d}".format(len(clb_count) + len(alb_count)))
         print(u"Total number of RDS Instances evaluated: {0:d}".format(len(rds_count)))
         print(u"Total number of Network Interfaces evaluated: {0:d}".format(len(eni_count)))
@@ -98,17 +98,20 @@ def main():
             print(u"Total number of Unused Bad Security Groups deleted: {0:d}".format(
                 len(set(bad_sg_delete_candidates))))
         else:
-            print(u"Total number of Unused Security Groups targeted for removal: {0:d}".format(len(sg_delete_candidates)))
-            print(u"Total number of Unused Bad Security Groups targeted for removal: {0:d}".format(
-                len(set(bad_sg_delete_candidates))))
+            print(u"Total number of Unused Security Groups targeted for removal: {0:d}".
+                  format(len(sg_delete_candidates)))
+            print(u"Total number of Unused Bad Security Groups targeted for removal: {0:d}".
+                  format(len(set(bad_sg_delete_candidates))))
 
             # For each security group in the total list, if not in the "used" list, flag for deletion
             # If running with a "--delete" flag, delete the ones flagged.
 
 
-def get_all_security_groups(cl, badports):
+def get_all_security_groups(sesh, region, badports):
     # Get ALL security groups names
-    security_groups_dict = cl.describe_security_groups()
+    ec2_client = sesh.client('ec2', region_name=region)
+    paginator = ec2_client.get_paginator('describe_security_groups')
+    security_groups_dict = paginator.paginate().build_full_result()
     security_groups = security_groups_dict['SecurityGroups']
     all_security_groups = []
     used_security_groups = []
@@ -142,22 +145,27 @@ def find_bad_security_groups(sg, all_badsgs, used_badsgs):
         used_badsgs.append(sg)
 
 
-def get_instance_security_groups(cl, used_sgs, all_bp_sgs, used_bp_sgs):
+def get_instance_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
     # Get all security groups used by instances
-    instances_dict = cl.describe_instances()
+    ec2_client = sesh.client('ec2', region_name=region)
+    paginator = ec2_client.get_paginator('describe_instances')
+    instances_dict = paginator.paginate().build_full_result()
     reservations = instances_dict['Reservations']
-
+    instcount = 0
     for i in reservations:
         for j in i['Instances']:
+            instcount += 1
             for k in j['SecurityGroups']:
                 add_to_groups_in_use(k['GroupId'], used_sgs)
                 find_bad_security_groups(k['GroupId'], all_bp_sgs, used_bp_sgs)
-    return used_sgs, used_bp_sgs, reservations
+    return used_sgs, used_bp_sgs, instcount
 
 
-def get_eni_security_groups(cl, used_sgs, all_bp_sgs, used_bp_sgs):
+def get_eni_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
     # Security Groups in use by Network Interfaces
-    eni_dict = cl.describe_network_interfaces()
+    ec2_client = sesh.client('ec2', region_name=region)
+    paginator = ec2_client.get_paginator('describe_network_interfaces')
+    eni_dict = paginator.paginate().build_full_result()
     for i in eni_dict['NetworkInterfaces']:
         for j in i['Groups']:
             add_to_groups_in_use(j['GroupId'], used_sgs)
@@ -168,7 +176,8 @@ def get_eni_security_groups(cl, used_sgs, all_bp_sgs, used_bp_sgs):
 def get_clb_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
     # Security groups used by classic ELBs
     elb_client = sesh.client('elb', region_name=region)
-    elb_dict = elb_client.describe_load_balancers()
+    paginator = elb_client.get_paginator('describe_load_balancers')
+    elb_dict = paginator.paginate().build_full_result()
     for i in elb_dict['LoadBalancerDescriptions']:
         for j in i['SecurityGroups']:
             add_to_groups_in_use(j, used_sgs)
@@ -179,7 +188,8 @@ def get_clb_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
 def get_alb_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
     # Security groups used by ALBs
     elb2_client = sesh.client('elbv2', region_name=region)
-    elb2_dict = elb2_client.describe_load_balancers()
+    paginator = elb2_client.get_paginator('describe_load_balancers')
+    elb2_dict = paginator.paginate().build_full_result()
     for i in elb2_dict['LoadBalancers']:
         try:
             # if i['Type'] == 'network':
@@ -195,7 +205,8 @@ def get_alb_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
 def get_rds_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
     # Security groups used by RDS
     rds_client = sesh.client('rds', region_name=region)
-    rds_dict = rds_client.describe_db_instances()
+    paginator = rds_client.get_paginator('describe_db_instances')
+    rds_dict = paginator.paginate().build_full_result()
     for i in rds_dict['DBInstances']:
         for j in i['VpcSecurityGroups']:
             add_to_groups_in_use(j['VpcSecurityGroupId'], used_sgs)
@@ -206,7 +217,8 @@ def get_rds_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
 def get_lambda_security_groups(sesh, region, used_sgs, all_bp_sgs, used_bp_sgs):
     # Security groups used by Lambdas
     lambda_client = sesh.client('lambda', region_name=region)
-    lambda_functions = lambda_client.list_functions()
+    paginator = lambda_client.get_paginator('list_functions')
+    lambda_functions = paginator.paginate().build_full_result()
     while True:
         if "NextMarker" in lambda_functions:
             nextMarker = lambda_functions["NextMarker"]
