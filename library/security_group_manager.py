@@ -1,10 +1,10 @@
 
 
 class SecurityGroupManager:
-    def __init__(self, session, region):
+    def __init__(self, args, session):
         self.aws_connection = session
-        self.aws_region = region
-        self.bad_ports = [20, 21, 1433, 1434, 3306, 3389, 4333, 5432, 5500]
+        self.aws_region = args.region
+        self.bad_ports = args.ports
         self.all_groups = list()
         self.groups_in_use = list()
         self.bad_groups = list()
@@ -63,6 +63,75 @@ class SecurityGroupManager:
     def _find_bad_security_groups(self, sg):
         if sg in self.bad_groups and sg not in self.bad_groups_in_use:
             self.bad_groups_in_use.append(sg)
+
+    def get_resources_using_group(self):
+        resources_using = dict()
+        for sg in self.bad_groups_in_use:
+            resources_using[sg] = dict()
+            resources_using[sg]["instances"] = list()
+            resources_using[sg]["eni"] = list()
+            resources_using[sg]["elb"] = list()
+            resources_using[sg]["elbv2"] = list()
+            resources_using[sg]["rds"] = list()
+            resources_using[sg]["lambda"] = list()
+            print(f"------------")
+            print(f"Resources utilizing {sg}:")
+            print(f"------------")
+            for inst in self.instances_security_groups:
+                for i, sgs in inst.items():
+                    if sg in sgs:
+                        resources_using[sg]["instances"].append(i)
+            if len(resources_using[sg]["instances"]) > 0:
+                print(f"Instances:")
+                print(f"------------")
+                print(*resources_using[sg]["instances"], sep="\n")
+                print(f"------------")
+            for i in self.eni_security_groups:
+                for e, sgs in i.items():
+                    if sg in sgs:
+                        resources_using[sg]["eni"].append(e)
+            if len(resources_using[sg]["eni"]) > 0:
+                print(f"Elastic Network Interfaces:")
+                print(f"------------")
+                print(*resources_using[sg]["eni"], sep="\n")
+                print(f"------------")
+            for elb in self.elb_security_groups:
+                for e1, sgs in elb.items():
+                    if sg in sgs:
+                        resources_using[sg]["elb"].append(e1)
+            if len(resources_using[sg]["elb"]) > 0:
+                print(f"ELBs:")
+                print(f"------------")
+                print(*resources_using[sg]["elb"], sep="\n")
+                print(f"------------")
+            for elbv2 in self.elbv2_security_groups:
+                for e2, sgs in elbv2.items():
+                    if sg in sgs:
+                        resources_using[sg]["elbv2"].append(e2)
+            if len(resources_using[sg]["elbv2"]) > 0:
+                print(f"ELBv2s:")
+                print(f"------------")
+                print(*resources_using[sg]["elbv2"], sep="\n")
+                print(f"------------")
+            for rdi in self.rds_security_groups:
+                for r, sgs in rdi.items():
+                    if sg in sgs:
+                        resources_using[sg]["rds"].append(r)
+            if len(resources_using[sg]["rds"]) > 0:
+                print(f"RDS Instances:")
+                print(f"------------")
+                print(*resources_using[sg]["rds"], sep="\n")
+                print(f"------------")
+            for lf in self.lambda_security_groups:
+                for f, sgs in lf.items():
+                    if sg in sgs:
+                        resources_using[sg]["lambda"].append(f)
+            if len(resources_using[sg]["lambda"]) > 0:
+                print(f"Lambda Functions:")
+                print(f"------------")
+                print(*resources_using[sg]["lambda"], sep="\n")
+                print(f"------------")
+        return resources_using
 
     def get_unused_groups(self):
         for unused_group in self.all_groups:
