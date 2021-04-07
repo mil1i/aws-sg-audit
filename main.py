@@ -7,27 +7,25 @@ from library.security_group_manager import SecurityGroupManager
 
 
 def main():
-    try:
-        default_region = os.environ["AWS_DEFAULT_REGION"]
-    except KeyError:
-        default_region = "us-east-1"
-
-    session = boto3.Session(profile_name="qq-readonly")
-    # Get a full list of the available regions
-    tmpClient = session.client("ec2")
-    regions_dict = tmpClient.describe_regions()
-    region_list = [region["RegionName"] for region in regions_dict["Regions"]]
+    default_region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+    default_profile = os.getenv("AWS_PROFILE")
 
     # Parse arguments
     parser = argparse.ArgumentParser(description="Show unused security groups")
-    parser.add_argument("-r", "--region", type=str, default=default_region,
-                        help="The default region is us-east-1. The list of available regions are as follows: "
-                             f"{sorted(region_list)}")
+    parser.add_argument("-r", "--region", type=str, default=default_region, help="The default region is us-east-1.")
+    parser.add_argument("-p", "--ports", type=int, nargs="+",
+                        default=[20, 21, 1433, 1434, 3306, 3389, 4333, 5432, 5500],
+                        help="Specify \"Bad Ports\" that you want to filter for. (seperate by space)")
+    parser.add_argument("--profile", type=str, default=default_profile, help="AWS Profile to use for making the call")
     parser.add_argument("-d", "--delete", help="delete security groups from AWS", action="store_true")
     args = parser.parse_args()
 
-    sg_manager = SecurityGroupManager(session, args.region)
+    if args.profile:
+        session = boto3.Session(profile_name=args.profile, region_name=args.region)
+    else:
+        session = boto3.Session(region_name=args.region)
 
+    sg_manager = SecurityGroupManager(args, session)
     if args.delete:
         print("We will now delete security groups identified to not be in use.")
         for group in sg_manager.delete_groups:
@@ -82,6 +80,9 @@ def main():
 
             # For each security group in the total list, if not in the "used" list, flag for deletion
             # If running with a "--delete" flag, delete the ones flagged.
+
+    print(" ")
+    sg_manager.get_resources_using_group()
 
 
 if __name__ == "__main__":
