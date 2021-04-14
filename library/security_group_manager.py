@@ -2,10 +2,12 @@
 
 class SecurityGroupManager:
     def __init__(self, args, session):
+        self.args = args
         self.aws_connection = session
         self.aws_region = args.region
         self.bad_ports = args.ports
         self.all_groups = list()
+        self.all_security_groups = list()
         self.groups_in_use = list()
         self.bad_groups = list()
         self.bad_groups_in_use = list()
@@ -23,22 +25,16 @@ class SecurityGroupManager:
         self.rds_security_groups = list()
         self.lambda_functions = list()
         self.lambda_security_groups = list()
-        self.get_all_security_groups()
-        self.get_instance_security_groups()
-        self.get_eni_security_groups()
-        self.get_elb_security_groups()
-        self.get_elbv2_security_groups()
-        self.get_rds_security_groups()
-        self.get_lambda_security_groups()
-        self.get_unused_groups()
+        self.marked_sgs = list()
+        self.restore_sgs = list()
 
     # Get ALL security groups names
     def get_all_security_groups(self):
         ec2_client = self.aws_connection.client("ec2", region_name=self.aws_region)
         paginator = ec2_client.get_paginator("describe_security_groups")
         security_groups_dict = paginator.paginate().build_full_result()
-        security_groups = security_groups_dict["SecurityGroups"]
-        for group in security_groups:
+        self.all_security_groups = security_groups_dict["SecurityGroups"]
+        for group in self.all_security_groups:
             if group["GroupName"] == "default" or group["GroupName"].startswith("d-") \
                     or group["GroupName"].startswith("AWS-OpsWorks-"):
                 self.groups_in_use.append(group["GroupId"])
@@ -134,6 +130,13 @@ class SecurityGroupManager:
         return resources_using
 
     def get_unused_groups(self):
+        self.get_all_security_groups()
+        self.get_instance_security_groups()
+        self.get_eni_security_groups()
+        self.get_elb_security_groups()
+        self.get_elbv2_security_groups()
+        self.get_rds_security_groups()
+        self.get_lambda_security_groups()
         for unused_group in self.all_groups:
             if unused_group not in self.groups_in_use:
                 self.delete_groups.append(unused_group)
@@ -142,6 +145,18 @@ class SecurityGroupManager:
             if unused_bad_group not in self.bad_groups_in_use:
                 self.delete_bad_groups.append(unused_bad_group)
         return self.delete_groups, self.delete_bad_groups
+
+    # Get all security groups that have the tag "MarkedForDeletion = true"
+    def get_marked_for_deletion_groups(self):
+        self.get_all_security_groups()
+        for sg in self.all_security_groups:
+            try:
+                for tag in sg["Tags"]:
+                    if tag["Key"] == "MarkedForDeletion" and tag["Value"] == "true":
+                        self.marked_sgs.append(sg)
+            except KeyError as err:
+                continue
+        return self.marked_sgs
 
     def _get_instances(self):
         ec2_client = self.aws_connection.client("ec2", region_name=self.aws_region)
@@ -266,3 +281,65 @@ class SecurityGroupManager:
             # finally:
             #     print(functionSecurityGroupIds)
         return self.lambda_security_groups
+
+    # Dump security groups to file
+    def dump_to_file(self, sgdir, sg):
+        import json
+        import os
+        try:
+            fobj = open(os.path.join(os.path.abspath(sgdir), f"{sg['GroupId']}.{sg['GroupName']}.json"), "w+")
+            fobj.truncate()
+            json.dump(sg, fobj)
+        except FileExistsError as err:
+            exit(f"Unable to create file:\n {err}")
+
+    # Read security group from json dump
+    def load_from_file(self, sgdir):
+        import json
+        import glob
+        import os
+        try:
+            files = [f for f in glob.glob(os.path.join(os.path.abspath(sgdir), "*.json"))]
+            for file in files:
+                fobj = open(file, "r")
+                sgobj = json.load(fobj)
+                self.restore_sgs.append(sgobj)
+            return self.restore_sgs
+        except FileNotFoundError as err:
+            exit(f"Unable to locate files:\n {err}")
+
+    # Restore security groups
+    def restore_security_groups(self, ec2):
+        for sg in self.restore_sgs:
+            load_sg = ec2.SecurityGroup(sg["GroupId"])
+            load_sg.create_tags(
+                DryRun=self.args.dryrun,
+                Tags=[
+                    {
+                        "Key": "MarkedForDeletion",
+                        "Value": "false"
+                    },
+                ]
+            )
+            load_sg.authorize_ingress(
+                DryRun=self.args.dryrun,
+                IpPermissions=sg["IpPermissions"]
+            )
+            print(f"Restored security group: \'{sg['GroupId']}\'")
+
+    # Mark for Deletion, preperation
+    def mark_for_deletion(self, ec2, sg):
+        marked_sg = ec2.SecurityGroup(sg["GroupId"])
+        marked_sg.create_tags(
+            DryRun=self.args.dryrun,
+            Tags=[
+                {
+                    "Key": "MarkedForDeletion",
+                    "Value": "true"
+                },
+            ]
+        )
+        marked_sg.revoke_ingress(
+            DryRun=self.args.dryrun,
+            IpPermissions=sg["IpPermissions"]
+        )
