@@ -36,6 +36,9 @@ def main():
 
     sg_manager = SecurityGroupManager(args, session)
 
+    # TODO: Remove me and line below
+    # sg_manager.get_ecs_services_security_groups()
+
     if args.delete:
         sg_manager.get_marked_for_deletion_groups()
         ec2resource = session.resource("ec2", region_name=args.region)
@@ -83,6 +86,7 @@ def main():
 
         print(u"Total number of Security Groups evaluated: {0:d}".format(len(set(sg_manager.all_groups))))
         print(u"Total number of EC2 Instances evaluated: {0:d}".format(len(sg_manager.instances)))
+        print(u"Total number of ECS Service evaluated: {0:d}".format(len(sg_manager.instances)))
         print(u"Total number of Load Balancers evaluated: {0:d}".format(len(sg_manager.elb_lbs) +
                                                                         len(sg_manager.elbv2_lbs)))
         print(u"Total number of RDS Instances evaluated: {0:d}".format(len(sg_manager.rds_instances)))

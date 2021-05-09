@@ -17,6 +17,9 @@ class SecurityGroupManager:
         self.instances_security_groups = list()
         self.elastic_network_instances = list()
         self.eni_security_groups = list()
+        self.ecs_clusters = list()
+        self.ecs_services = list()
+        self.ecs_security_groups = list()
         self.elb_lbs = list()
         self.elb_security_groups = list()
         self.elbv2_lbs = list()
@@ -36,7 +39,8 @@ class SecurityGroupManager:
         self.all_security_groups = security_groups_dict["SecurityGroups"]
         for group in self.all_security_groups:
             if group["GroupName"] == "default" or group["GroupName"].startswith("d-") \
-                    or group["GroupName"].startswith("AWS-OpsWorks-"):
+                    or group["GroupName"].startswith("AWS-OpsWorks-") or \
+                    group["GroupName"].endswith("-ecs-service-sg") or group["GroupName"].endswith("-ecs-task-sg"):
                 self.groups_in_use.append(group["GroupId"])
             for perm in group["IpPermissions"]:
                 try:
@@ -133,6 +137,7 @@ class SecurityGroupManager:
         self.get_all_security_groups()
         self.get_instance_security_groups()
         self.get_eni_security_groups()
+        self.get_ecs_services_security_groups()
         self.get_elb_security_groups()
         self.get_elbv2_security_groups()
         self.get_rds_security_groups()
@@ -281,6 +286,47 @@ class SecurityGroupManager:
             # finally:
             #     print(functionSecurityGroupIds)
         return self.lambda_security_groups
+
+    # Get ECS cluster/service/tasks information
+    def _get_ecs_services(self):
+        ecs_client = self.aws_connection.client("ecs", region_name=self.aws_region)
+        paginator_cluster = ecs_client.get_paginator("list_clusters")
+        paginator_services = ecs_client.get_paginator("list_services")
+        ecs_clusters_dict = paginator_cluster.paginate().build_full_result()
+        self.ecs_clusters = [cluster for cluster in ecs_clusters_dict["clusterArns"]]
+        for cluster in self.ecs_clusters:
+            cluster_services = paginator_services.paginate(cluster=cluster).build_full_result()
+            for service in cluster_services["serviceArns"]:
+                service_config = ecs_client.describe_services(cluster=cluster, services=[service])
+                if len(service_config["services"]) > 0:
+                    self.ecs_services.append({service: service_config["services"][0]})
+        return self.ecs_services
+
+    # Security groups used by ECS Services
+    def get_ecs_services_security_groups(self):
+        for service in self._get_ecs_services():
+            for svc in service:
+                try:
+                    sgs_service = [sg for sg in
+                                   service[svc]["networkConfiguration"]["awsvpcConfiguration"]["securityGroups"]]
+                except KeyError:
+                    pass
+                try:
+                    svc_deployments = [deployment["networkConfiguration"]["awsvpcConfiguration"]["securityGroups"]
+                                       for deployment in service[svc]["deployments"]]
+                    sgs_deployments = [sg for sg in svc_deployments]
+                except KeyError:
+                    pass
+                if sgs_deployments and sgs_service:
+                    for sg in sgs_deployments:
+                        sgs_service.extend(sg)
+                    for sg in set(sgs_service):
+                        self._add_to_groups_in_use(sg)
+                        self._find_bad_security_groups(sg)
+                        self.ecs_security_groups.append(sg)
+        self.ecs_security_groups = set(self.ecs_security_groups)
+        print(self.ecs_security_groups)
+        # return self.lambda_security_groups
 
     # Dump security groups to file
     def dump_to_file(self, sgdir, sg):
