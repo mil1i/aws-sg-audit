@@ -38,9 +38,8 @@ class SecurityGroupManager:
         security_groups_dict = paginator.paginate().build_full_result()
         self.all_security_groups = security_groups_dict["SecurityGroups"]
         for group in self.all_security_groups:
-            if group["GroupName"] == "default" or group["GroupName"].startswith("d-") \
-                    or group["GroupName"].startswith("AWS-OpsWorks-") or \
-                    group["GroupName"].endswith("-ecs-service-sg") or group["GroupName"].endswith("-ecs-task-sg"):
+            if group["GroupName"] in self.args.equals or group["GroupName"].startswith(tuple(self.args.startswith)) \
+                    or group["GroupName"].endswith(tuple(self.args.endswith)):
                 self.groups_in_use.append(group["GroupId"])
             for perm in group["IpPermissions"]:
                 try:
@@ -70,6 +69,7 @@ class SecurityGroupManager:
             resources_using[sg] = dict()
             resources_using[sg]["instances"] = list()
             resources_using[sg]["eni"] = list()
+            resources_using[sg]["ecs"] = list()
             resources_using[sg]["elb"] = list()
             resources_using[sg]["elbv2"] = list()
             resources_using[sg]["rds"] = list()
@@ -94,6 +94,15 @@ class SecurityGroupManager:
                 print(f"Elastic Network Interfaces:")
                 print(f"------------")
                 print(*resources_using[sg]["eni"], sep="\n")
+                print(f"------------")
+            for svc in self.ecs_services:
+                for s, sgs in svc.items():
+                    if sg in sgs:
+                        resources_using[sg]["ecs"].append(s)
+            if len(resources_using[sg]["ecs"]) > 0:
+                print(f"ECS Services:")
+                print(f"------------")
+                print(*resources_using[sg]["ecs"], sep="\n")
                 print(f"------------")
             for elb in self.elb_security_groups:
                 for e1, sgs in elb.items():
@@ -306,11 +315,13 @@ class SecurityGroupManager:
     def get_ecs_services_security_groups(self):
         for service in self._get_ecs_services():
             for svc in service:
+                sgs_service = []
                 try:
                     sgs_service = [sg for sg in
                                    service[svc]["networkConfiguration"]["awsvpcConfiguration"]["securityGroups"]]
                 except KeyError:
                     pass
+                sgs_deployments = []
                 try:
                     svc_deployments = [deployment["networkConfiguration"]["awsvpcConfiguration"]["securityGroups"]
                                        for deployment in service[svc]["deployments"]]
@@ -324,12 +335,12 @@ class SecurityGroupManager:
                         self._add_to_groups_in_use(sg)
                         self._find_bad_security_groups(sg)
                         self.ecs_security_groups.append(sg)
-        self.ecs_security_groups = set(self.ecs_security_groups)
-        print(self.ecs_security_groups)
-        # return self.lambda_security_groups
+        # print(self.ecs_security_groups)
+        return self.ecs_security_groups
 
     # Dump security groups to file
-    def dump_to_file(self, sgdir, sg):
+    @staticmethod
+    def dump_to_file(sgdir, sg):
         import json
         import os
         try:
