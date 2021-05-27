@@ -46,9 +46,6 @@ def main():
 
     sg_manager = SecurityGroupManager(args, session)
 
-    # TODO: Remove me and line below
-    # sg_manager.get_ecs_services_security_groups()
-
     if args.delete:
         sg_manager.get_marked_for_deletion_groups()
         ec2resource = session.resource("ec2", region_name=args.region)

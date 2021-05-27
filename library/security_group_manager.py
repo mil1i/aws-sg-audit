@@ -335,7 +335,6 @@ class SecurityGroupManager:
                         self._add_to_groups_in_use(sg)
                         self._find_bad_security_groups(sg)
                         self.ecs_security_groups.append(sg)
-        # print(self.ecs_security_groups)
         return self.ecs_security_groups
 
     # Dump security groups to file
