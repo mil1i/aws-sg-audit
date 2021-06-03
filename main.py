@@ -15,10 +15,10 @@ def main():
     parser = argparse.ArgumentParser(description="Show unused security groups")
     parser.add_argument("-r", "--region", type=str, default=default_region, help="The default region is us-east-1.")
     parser.add_argument("-p", "--ports", type=int, nargs="+",
-                        default=[20, 21, 1433, 1434, 3306, 3389, 4333, 5432, 5500],
+                        default=[20, 21, 22, 389, 53, 445, 1433, 1434, 3306, 3389, 4333, 5432, 5500],
                         help="Specify \"Bad Ports\" that you want to filter for. (seperate by space)")
     parser.add_argument("--equals", type=str, nargs="+", dest="equals",
-                        default=["default", "eks-cluster-default", "allow-mssql-f5-filtered"],
+                        default=["default", "eks-cluster-default"],
                         help="Specify security group names to whitelist, exact match. (seperate by space)")
     parser.add_argument("--starts-with", type=str, nargs="+", dest="startswith",
                         default=["d-", "AWS-OpsWorks-", "aurora-rds-"],
