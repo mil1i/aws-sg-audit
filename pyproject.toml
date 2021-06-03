@@ -2,7 +2,6 @@
 name = "aws-sg-finder"
 version = "0.1.2"
 description = ""
-authors = ["Matt Milligan <rmilligan@vertafore.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
