@@ -17,9 +17,19 @@ def main():
     parser.add_argument("-p", "--ports", type=int, nargs="+",
                         default=[20, 21, 1433, 1434, 3306, 3389, 4333, 5432, 5500],
                         help="Specify \"Bad Ports\" that you want to filter for. (seperate by space)")
+    parser.add_argument("--equals", type=str, nargs="+", dest="equals",
+                        default=["default", "eks-cluster-default", "allow-mssql-f5-filtered"],
+                        help="Specify security group names to whitelist, exact match. (seperate by space)")
+    parser.add_argument("--starts-with", type=str, nargs="+", dest="startswith",
+                        default=["d-", "AWS-OpsWorks-", "aurora-rds-"],
+                        help="Specify security group names to whitelist, prefix starts with. (seperate by space)")
+    parser.add_argument("--ends-with", type=str, nargs="+", dest="endswith",
+                        default=["-ecs-service-sg", "-ecs-task-sg"],
+                        help="Specify security group names to whitelist, prefix starts with. (seperate by space)")
     parser.add_argument("--profile", type=str, default=default_profile, help="AWS Profile to use for making the call")
     parser.add_argument("--outdir", type=str, default=None, help="Directory to dump security groups in json format")
     parser.add_argument("--restore", type=str, default=None, help="Directory to use to restore SecurityGroups from")
+    parser.add_argument("-b", "--bad-only", dest="badonly", help="Delete security groups from AWS", action="store_true")
     parser.add_argument("-d", "--delete", help="Delete security groups from AWS", action="store_true")
     parser.add_argument("-m", "--mark", help="Mark security group for removal prior to deleting", action="store_true")
     parser.add_argument("--dryrun", help="Enable the DryRun flag to not make changes to any resources",
@@ -56,10 +66,11 @@ def main():
         sg_manager.get_resources_using_group()
         ec2resource = session.resource("ec2", region_name=args.region)
         for sg in sg_manager.all_security_groups:
-            if sg["GroupId"] in sg_manager.delete_bad_groups or sg["GroupId"] in sg_manager.delete_groups:
+            if sg["GroupId"] in sg_manager.delete_bad_groups or \
+                    (sg["GroupId"] in sg_manager.delete_groups and not args.badonly):
                 sg_manager.dump_to_file(args.outdir, sg)
                 if args.mark:
-                    print(f"Updating security group to be marked for deletion: \'{sg['GroupId']}\'")
+                    print(f"creating tag to mark security group for deletion: \'{sg['GroupId']}\'")
                     sg_manager.mark_for_deletion(ec2resource, sg)
 
     if len(set(sg_manager.delete_groups)) > 0:
@@ -81,20 +92,30 @@ def main():
         print("Activity Report")
         print("---------------")
 
-        print(u"Total number of Security Groups evaluated: {0:d}".format(len(set(sg_manager.all_groups))))
         print(u"Total number of EC2 Instances evaluated: {0:d}".format(len(sg_manager.instances)))
+        print(u"Total number of ECS Clusters evaluated: {0:d}".format(len(sg_manager.ecs_clusters)))
+        print(u"Total number of ECS Services evaluated: {0:d}".format(len(sg_manager.ecs_services)))
         print(u"Total number of Load Balancers evaluated: {0:d}".format(len(sg_manager.elb_lbs) +
                                                                         len(sg_manager.elbv2_lbs)))
         print(u"Total number of RDS Instances evaluated: {0:d}".format(len(sg_manager.rds_instances)))
         print(u"Total number of Network Interfaces evaluated: {0:d}".format(len(sg_manager.elastic_network_instances)))
         print(u"Total number of Lambda Functions evaluated: {0:d}".format(len(sg_manager.lambda_functions)))
+
+        print("\n---------------")
+        print("SUMMARY")
+        print("---------------")
+        print(u"Total number of Security Groups evaluated: {0:d}".format(len(set(sg_manager.all_groups))))
+
+        print("\n---IN-USE----\n")
         print(u"Total number of Security Groups in-use evaluated: {0:d}".format(len(set(sg_manager.groups_in_use))))
         print(u"Total number of Bad Security Groups in-use evaluated: {0:d}".format(
             len(set(sg_manager.bad_groups_in_use))))
+        print("\n--NOT-IN-USE--\n")
         print(u"Total number of Unused Security Groups targeted for removal: {0:d}".
               format(len(set(sg_manager.delete_groups))))
         print(u"Total number of Unused Bad Security Groups targeted for removal: {0:d}".
               format(len(set(sg_manager.delete_bad_groups))))
+        print("---------------")
 
 
 if __name__ == "__main__":
