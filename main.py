@@ -49,28 +49,39 @@ def main():
     if args.delete:
         sg_manager.get_marked_for_deletion_groups()
         ec2resource = session.resource("ec2", region_name=args.region)
+        if len(sg_manager.marked_sgs) <= 0:
+            print("No security groups marked for deletion!")
+            exit(0)
         for sg in sg_manager.marked_sgs:
             delete_sg = ec2resource.SecurityGroup(sg["GroupId"])
-            delete_sg.delete(DryRun=args.dryrun)
-        exit(f"Deleted {len(sg_manager.marked_sgs)} security groups")
+            try:
+                delete_sg.delete(DryRun=args.dryrun)
+                print(f"{sg['GroupId']}: deleted security group")
+            except botocore.exceptions.ClientError as error:
+                if error.response["Error"]["Code"] == 'DryRunOperation':
+                    print(f"DryRunOperation - DeleteSecurityGroup: {error.response['Error']['Message']}")
+        print(f"Deleted {len(sg_manager.marked_sgs)} security groups")
+        exit(0)
 
     if args.restore:
         sg_manager.load_from_file(args.restore)
         ec2resource = session.resource("ec2", region_name=args.region)
         sg_manager.restore_security_groups(ec2resource)
-        exit(f"Completed restoring security groups from '{args.restore}'")
+        print(f"Completed restoring security groups from '{args.restore}'")
+        exit(0)
 
     sg_manager.get_unused_groups()
 
     if args.outdir:
         sg_manager.get_resources_using_group()
-        ec2resource = session.resource("ec2", region_name=args.region)
         for sg in sg_manager.all_security_groups:
             if sg["GroupId"] in sg_manager.delete_bad_groups or \
                     (sg["GroupId"] in sg_manager.delete_groups and not args.badonly):
-                sg_manager.dump_to_file(args.outdir, sg)
+                ec2client = session.client("ec2", region_name=args.region)
+                if not sg_manager.is_marked_for_deletion(ec2client, sg):
+                    sg_manager.dump_to_file(args.outdir, sg)
                 if args.mark:
-                    print(f"creating tag to mark security group for deletion: \'{sg['GroupId']}\'")
+                    ec2resource = session.resource("ec2", region_name=args.region)
                     sg_manager.mark_for_deletion(ec2resource, sg)
 
     if len(set(sg_manager.delete_groups)) > 0:

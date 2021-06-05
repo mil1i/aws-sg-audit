@@ -172,6 +172,16 @@ class SecurityGroupManager:
                 continue
         return self.marked_sgs
 
+    @staticmethod
+    def is_marked_for_deletion(ec2, sg):
+        sg_tag_collector = ec2.describe_security_groups(GroupIds=[sg["GroupId"]])
+        sg_tags = sg_tag_collector["SecurityGroups"][0]["Tags"]
+        if "MarkedForDeletion" in [v for e in sg_tags for v in e.values()]:
+            for tag in sg_tags:
+                if tag["Key"] == "MarkedForDeletion" and tag["Value"] == "true":
+                    return True
+        return False
+
     def _get_instances(self):
         ec2_client = self.aws_connection.client("ec2", region_name=self.aws_region)
         paginator = ec2_client.get_paginator("describe_instances")
@@ -366,36 +376,59 @@ class SecurityGroupManager:
 
     # Restore security groups
     def restore_security_groups(self, ec2):
+        import botocore.exceptions
         for sg in self.restore_sgs:
             load_sg = ec2.SecurityGroup(sg["GroupId"])
-            load_sg.create_tags(
-                DryRun=self.args.dryrun,
-                Tags=[
-                    {
-                        "Key": "MarkedForDeletion",
-                        "Value": "false"
-                    },
-                ]
-            )
-            load_sg.authorize_ingress(
-                DryRun=self.args.dryrun,
-                IpPermissions=sg["IpPermissions"]
-            )
+            try:
+                load_sg.create_tags(
+                    DryRun=self.args.dryrun,
+                    Tags=[
+                        {
+                            "Key": "MarkedForDeletion",
+                            "Value": "false"
+                        },
+                    ]
+                )
+            except botocore.exceptions.ClientError as error:
+                if error.response["Error"]["Code"] == 'DryRunOperation':
+                    print(f"DryRunOperation - CreateTags: {error.response['Error']['Message']}")
+            try:
+                load_sg.authorize_ingress(
+                    DryRun=self.args.dryrun,
+                    IpPermissions=sg["IpPermissions"]
+                )
+            except botocore.exceptions.ClientError as error:
+                if error.response["Error"]["Code"] == 'DryRunOperation':
+                    print(f"DryRunOperation - AuthorizeIngress: {error.response['Error']['Message']}\n")
             print(f"Restored security group: \'{sg['GroupId']}\'")
 
     # Mark for Deletion, preperation
     def mark_for_deletion(self, ec2, sg):
+        import botocore.exceptions
+        tag_client = self.aws_connection.client("ec2", region_name=self.aws_region)
+        if self.is_marked_for_deletion(tag_client, sg):
+            print(f"security group already marked for deletion: \'{sg['GroupId']}\'")
+            return
         marked_sg = ec2.SecurityGroup(sg["GroupId"])
-        marked_sg.create_tags(
-            DryRun=self.args.dryrun,
-            Tags=[
-                {
-                    "Key": "MarkedForDeletion",
-                    "Value": "true"
-                },
-            ]
-        )
-        marked_sg.revoke_ingress(
-            DryRun=self.args.dryrun,
-            IpPermissions=sg["IpPermissions"]
-        )
+        try:
+            print(f"creating tag to mark security group for deletion: \'{sg['GroupId']}\'")
+            marked_sg.create_tags(
+                DryRun=self.args.dryrun,
+                Tags=[
+                    {
+                        "Key": "MarkedForDeletion",
+                        "Value": "true"
+                    },
+                ]
+            )
+        except botocore.exceptions.ClientError as error:
+            if error.response["Error"]["Code"] == 'DryRunOperation':
+                print(f"DryRunOperation - CreateTags: {error.response['Error']['Message']}")
+        try:
+            marked_sg.revoke_ingress(
+                DryRun=self.args.dryrun,
+                IpPermissions=sg["IpPermissions"]
+            )
+        except botocore.exceptions.ClientError as error:
+            if error.response["Error"]["Code"] == 'DryRunOperation':
+                print(f"DryRunOperation - RevokeIngress: {error.response['Error']['Message']}\n")
