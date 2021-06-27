@@ -402,7 +402,7 @@ class SecurityGroupManager:
                     print(f"DryRunOperation - AuthorizeIngress: {error.response['Error']['Message']}\n")
             print(f"Restored security group: \'{sg['GroupId']}\'")
 
-    # Mark for Deletion, preperation
+    # Mark for Deletion, preparation
     def mark_for_deletion(self, ec2, sg):
         import botocore.exceptions
         tag_client = self.aws_connection.client("ec2", region_name=self.aws_region)
