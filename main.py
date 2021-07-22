@@ -59,7 +59,7 @@ def main():
                 print(f"{sg['GroupId']}: deleted security group")
             except botocore.exceptions.ClientError as error:
                 if error.response["Error"]["Code"] == 'DryRunOperation':
-                    print(f"DryRunOperation - DeleteSecurityGroup: {error.response['Error']['Message']}")
+                    print(f"DryRunOperation - DeleteSecurityGroup ({sg['GroupId']}): {error.response['Error']['Message']}")
         print(f"Deleted {len(sg_manager.marked_sgs)} security groups")
         exit(0)
 
