@@ -63,9 +63,18 @@ class SecurityGroupManager:
         if sg in self.bad_groups and sg not in self.bad_groups_in_use:
             self.bad_groups_in_use.append(sg)
 
-    def get_resources_using_group(self):
+    def get_resources_using_group(self, reportdir):
+        import xlsxwriter
+        import os
+        workbook = xlsxwriter.Workbook(os.path.join(os.path.abspath(reportdir), "sg-bad-groups.xlsx"))
+        column_title_format = workbook.add_format()
+        column_title_format.set_bold(True)
+        column_title_format.set_bg_color("lime")
+        print("Generating report containing security groups with bad rules...")
         resources_using = dict()
         for sg in self.bad_groups_in_use:
+            worksheet = workbook.add_worksheet(sg)
+            col = 0
             resources_using[sg] = dict()
             resources_using[sg]["instances"] = list()
             resources_using[sg]["eni"] = list()
@@ -74,72 +83,120 @@ class SecurityGroupManager:
             resources_using[sg]["elbv2"] = list()
             resources_using[sg]["rds"] = list()
             resources_using[sg]["lambda"] = list()
-            print(f"------------")
-            print(f"Resources utilizing {sg}:")
-            print(f"------------")
             for inst in self.instances_security_groups:
                 for i, sgs in inst.items():
                     if sg in sgs:
                         resources_using[sg]["instances"].append(i)
+            row = 0
             if len(resources_using[sg]["instances"]) > 0:
-                print(f"Instances:")
-                print(f"------------")
-                print(*resources_using[sg]["instances"], sep="\n")
-                print(f"------------")
+                worksheet.write(row, col, "EC2 InstanceId", column_title_format)
+                row += 1
+                colwidth = len("EC2 InstanceId")
+                for ins in resources_using[sg]["instances"]:
+                    worksheet.write(row, col, ins)
+                    if len(ins) > colwidth:
+                        colwidth = len(ins)
+                    row += 1
+                worksheet.set_column(col, col, colwidth+1)
+                col += 1
             for i in self.eni_security_groups:
                 for e, sgs in i.items():
                     if sg in sgs:
                         resources_using[sg]["eni"].append(e)
+            row = 0
             if len(resources_using[sg]["eni"]) > 0:
-                print(f"Elastic Network Interfaces:")
-                print(f"------------")
-                print(*resources_using[sg]["eni"], sep="\n")
-                print(f"------------")
+                worksheet.write(row, col, "ENI Id", column_title_format)
+                row += 1
+                colwidth = len("ENI Id")
+                for ins in resources_using[sg]["eni"]:
+                    worksheet.write(row, col, ins)
+                    if len(ins) > colwidth:
+                        colwidth = len(ins)
+                    row += 1
+                worksheet.set_column(col, col, colwidth+1)
+                col += 1
             for svc in self.ecs_services:
                 for s, sgs in svc.items():
                     if sg in sgs:
                         resources_using[sg]["ecs"].append(s)
+            row = 0
             if len(resources_using[sg]["ecs"]) > 0:
-                print(f"ECS Services:")
-                print(f"------------")
-                print(*resources_using[sg]["ecs"], sep="\n")
-                print(f"------------")
+                worksheet.write(row, col, "ECS Service", column_title_format)
+                row += 1
+                colwidth = len("ECS Service")
+                for ins in resources_using[sg]["ecs"]:
+                    worksheet.write(row, col, ins)
+                    if len(ins) > colwidth:
+                        colwidth = len(ins)
+                    row += 1
+                worksheet.set_column(col, col, colwidth+1)
+                col += 1
             for elb in self.elb_security_groups:
                 for e1, sgs in elb.items():
                     if sg in sgs:
                         resources_using[sg]["elb"].append(e1)
+            row = 0
             if len(resources_using[sg]["elb"]) > 0:
-                print(f"ELBs:")
-                print(f"------------")
-                print(*resources_using[sg]["elb"], sep="\n")
-                print(f"------------")
+                worksheet.write(row, col, "ELB Id", column_title_format)
+                row += 1
+                colwidth = len("ELB Id")
+                for ins in resources_using[sg]["elb"]:
+                    worksheet.write(row, col, ins)
+                    if len(ins) > colwidth:
+                        colwidth = len(ins)
+                    row += 1
+                worksheet.set_column(col, col, colwidth+1)
+                col += 1
             for elbv2 in self.elbv2_security_groups:
                 for e2, sgs in elbv2.items():
                     if sg in sgs:
                         resources_using[sg]["elbv2"].append(e2)
+            row = 0
             if len(resources_using[sg]["elbv2"]) > 0:
-                print(f"ELBv2s:")
-                print(f"------------")
-                print(*resources_using[sg]["elbv2"], sep="\n")
-                print(f"------------")
+                worksheet.write(row, col, "ELBv2 Id", column_title_format)
+                row += 1
+                colwidth = len("ELBv2 Id")
+                for ins in resources_using[sg]["elbv2"]:
+                    worksheet.write(row, col, ins)
+                    if len(ins) > colwidth:
+                        colwidth = len(ins)
+                    row += 1
+                worksheet.set_column(col, col, colwidth+1)
+                col += 1
             for rdi in self.rds_security_groups:
                 for r, sgs in rdi.items():
                     if sg in sgs:
                         resources_using[sg]["rds"].append(r)
+            row = 0
             if len(resources_using[sg]["rds"]) > 0:
-                print(f"RDS Instances:")
-                print(f"------------")
-                print(*resources_using[sg]["rds"], sep="\n")
-                print(f"------------")
+                worksheet.write(row, col, "RDS InstanceId", column_title_format)
+                row += 1
+                colwidth = len("RDS Instance")
+                for ins in resources_using[sg]["rds"]:
+                    worksheet.write(row, col, ins)
+                    if len(ins) > colwidth:
+                        colwidth = len(ins)
+                    row += 1
+                worksheet.set_column(col, col, colwidth+1)
+                col += 1
             for lf in self.lambda_security_groups:
                 for f, sgs in lf.items():
                     if sg in sgs:
                         resources_using[sg]["lambda"].append(f)
+            row = 0
             if len(resources_using[sg]["lambda"]) > 0:
-                print(f"Lambda Functions:")
-                print(f"------------")
-                print(*resources_using[sg]["lambda"], sep="\n")
-                print(f"------------")
+                worksheet.write(row, col, "Lambda Function", column_title_format)
+                row += 1
+                colwidth = len("Lambda Function")
+                for ins in resources_using[sg]["lambda"]:
+                    worksheet.write(row, col, ins)
+                    if len(ins) > colwidth:
+                        colwidth = len(ins)
+                    row += 1
+                worksheet.set_column(col, col, colwidth+1)
+                col += 1
+        workbook.close()
+        print(f"Report generated and saved at: {os.path.join(os.path.abspath(reportdir), 'sg-bad-groups.xlsx')}")
         return resources_using
 
     def get_unused_groups(self):
@@ -175,12 +232,15 @@ class SecurityGroupManager:
     @staticmethod
     def is_marked_for_deletion(ec2, sg):
         sg_tag_collector = ec2.describe_security_groups(GroupIds=[sg["GroupId"]])
-        sg_tags = sg_tag_collector["SecurityGroups"][0]["Tags"]
-        if "MarkedForDeletion" in [v for e in sg_tags for v in e.values()]:
-            for tag in sg_tags:
-                if tag["Key"] == "MarkedForDeletion" and tag["Value"] == "true":
-                    return True
-        return False
+        try:
+            sg_tags = sg_tag_collector["SecurityGroups"][0]["Tags"]
+            if "MarkedForDeletion" in [v for e in sg_tags for v in e.values()]:
+                for tag in sg_tags:
+                    if tag["Key"] == "MarkedForDeletion" and tag["Value"] == "true":
+                        return True
+            return False
+        except KeyError:
+            return False
 
     def _get_instances(self):
         ec2_client = self.aws_connection.client("ec2", region_name=self.aws_region)
@@ -392,17 +452,17 @@ class SecurityGroupManager:
             except botocore.exceptions.ClientError as error:
                 if error.response["Error"]["Code"] == 'DryRunOperation':
                     print(f"DryRunOperation - CreateTags: {error.response['Error']['Message']}")
-            try:
-                load_sg.authorize_ingress(
-                    DryRun=self.args.dryrun,
-                    IpPermissions=sg["IpPermissions"]
-                )
-            except botocore.exceptions.ClientError as error:
-                if error.response["Error"]["Code"] == 'DryRunOperation':
-                    print(f"DryRunOperation - AuthorizeIngress: {error.response['Error']['Message']}\n")
+            # try:
+            #     load_sg.authorize_ingress(
+            #         DryRun=self.args.dryrun,
+            #         IpPermissions=sg["IpPermissions"]
+            #     )
+            # except botocore.exceptions.ClientError as error:
+            #     if error.response["Error"]["Code"] == 'DryRunOperation':
+            #         print(f"DryRunOperation - AuthorizeIngress: {error.response['Error']['Message']}\n")
             print(f"Restored security group: \'{sg['GroupId']}\'")
 
-    # Mark for Deletion, preparation
+    # Mark for Deletion, preperation
     def mark_for_deletion(self, ec2, sg):
         import botocore.exceptions
         tag_client = self.aws_connection.client("ec2", region_name=self.aws_region)
@@ -424,11 +484,11 @@ class SecurityGroupManager:
         except botocore.exceptions.ClientError as error:
             if error.response["Error"]["Code"] == 'DryRunOperation':
                 print(f"DryRunOperation - CreateTags: {error.response['Error']['Message']}")
-        try:
-            marked_sg.revoke_ingress(
-                DryRun=self.args.dryrun,
-                IpPermissions=sg["IpPermissions"]
-            )
-        except botocore.exceptions.ClientError as error:
-            if error.response["Error"]["Code"] == 'DryRunOperation':
-                print(f"DryRunOperation - RevokeIngress: {error.response['Error']['Message']}\n")
+        # try:
+        #     marked_sg.revoke_ingress(
+        #         DryRun=self.args.dryrun,
+        #         IpPermissions=sg["IpPermissions"]
+        #     )
+        # except botocore.exceptions.ClientError as error:
+        #     if error.response["Error"]["Code"] == 'DryRunOperation':
+        #         print(f"DryRunOperation - RevokeIngress: {error.response['Error']['Message']}\n")
