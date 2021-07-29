@@ -13,20 +13,20 @@ def main():
 
     # Parse arguments
     parser = argparse.ArgumentParser(description="Show unused security groups")
+    parser.add_argument("--profile", type=str, default=default_profile, help="AWS Profile to use for making the call")
     parser.add_argument("-r", "--region", type=str, default=default_region, help="The default region is us-east-1.")
     parser.add_argument("-p", "--ports", type=int, nargs="+",
-                        default=[20, 21, 1433, 1434, 3306, 3389, 4333, 5432, 5500],
+                        default=[20, 21, 22, 389, 53, 445, 1433, 1434, 3306, 3389, 4333, 5432, 5500],
                         help="Specify ports deemed bad to be opened to the public to filter for. (seperate by space)")
     parser.add_argument("--equals", type=str, nargs="+", dest="equals",
-                        default=["default", "eks-cluster-default", "allow-mssql-f5-filtered"],
+                        default=["default", "eks-cluster-default"],
                         help="Specify security group names to whitelist, exact match. (seperate by space)")
     parser.add_argument("--starts-with", type=str, nargs="+", dest="startswith",
                         default=["d-", "AWS-OpsWorks-", "aurora-rds-"],
-                        help="Specify security group names to whitelist, prefix starts with. (seperate by space)")
+                        help="Specify security group names to whitelist, name starts with. (seperate by space)")
     parser.add_argument("--ends-with", type=str, nargs="+", dest="endswith",
                         default=["-ecs-service-sg", "-ecs-task-sg"],
-                        help="Specify security group names to whitelist, prefix starts with. (seperate by space)")
-    parser.add_argument("--profile", type=str, default=default_profile, help="AWS Profile to use for making the call")
+                        help="Specify security group names to whitelist, name ends with. (seperate by space)")
     parser.add_argument("--outdir", type=str, default=None, help="Directory to dump security groups in json format")
     parser.add_argument("--restore", type=str, default=None, help="Directory to use to restore SecurityGroups from")
     parser.add_argument("--report", type=str, default=None, help="Directory to create the security output report in")
@@ -61,7 +61,8 @@ def main():
                 print(f"{sg['GroupId']}: deleted security group")
             except botocore.exceptions.ClientError as error:
                 if error.response["Error"]["Code"] == 'DryRunOperation':
-                    print(f"DryRunOperation - DeleteSecurityGroup ({sg['GroupId']}): {error.response['Error']['Message']}")
+                    print(f"DryRunOperation - DeleteSecurityGroup ({sg['GroupId']}):"
+                          f" {error.response['Error']['Message']}")
         print(f"Deleted {len(sg_manager.marked_sgs)} security groups")
         exit(0)
 
