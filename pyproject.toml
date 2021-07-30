@@ -1,14 +1,15 @@
 [tool.poetry]
 name = "aws-sg-finder"
 version = "0.1.2"
-description = ""
+description = "Find unused security groups, or groups with ports open to the public you want to identify in your AWS account"
 authors = ["mil1i <mil1i@pm.me>"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
-boto3 = "^1.17.46"
-pylint = "^2.7.4"
-astroid = "^2.6.0"
+boto3 = "^1.18.10"
+pylint = "^2.9.6"
+astroid = "^2.6.5"
+xlsxwriter = "^1.4.4"
 
 [tool.poetry.dev-dependencies]
 
