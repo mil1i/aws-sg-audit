@@ -29,11 +29,15 @@ def main():
                         help="Specify security group names to whitelist, name ends with. (seperate by space)")
     parser.add_argument("--outdir", type=str, default=None, help="Directory to dump security groups in json format")
     parser.add_argument("--restore", type=str, default=None, help="Directory to use to restore SecurityGroups from")
+    parser.add_argument("--restore-ingress-rules", dest="restore_ingress_rules", action="store_true",
+                        help="Restore ingress rules to security group when restoring from backup")
     parser.add_argument("--report", type=str, default=None, help="Directory to create the security output report in")
     parser.add_argument("-b", "--bad-only", dest="badonly",
                         help="Filter for only ports flagged as bad", action="store_true")
     parser.add_argument("-d", "--delete", help="Delete security groups from AWS", action="store_true")
     parser.add_argument("-m", "--mark", help="Mark security group for removal prior to deleting", action="store_true")
+    parser.add_argument("--remove-ingress-rules", dest="remove_ingress_rules", action="store_true",
+                        help="Remove ingress rules from security group when marking for deletion")
     parser.add_argument("--dryrun", help="Enable the DryRun flag to not make changes to any resources",
                         action="store_true")
     args = parser.parse_args()
