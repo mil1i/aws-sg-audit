@@ -63,8 +63,27 @@ class SecurityGroupManager:
         if sg in self.bad_groups and sg not in self.bad_groups_in_use:
             self.bad_groups_in_use.append(sg)
 
+    @staticmethod
+    def _populate_xlsx_column(sheet, column_num, resource, column_id, column_format):
+        row = 0
+        if len(resource) > 0:
+            sheet.write(row, column_num, column_id, column_format)
+            row += 1
+            colwidth = len(column_id)
+            for ins in resource:
+                sheet.write(row, column_num, ins)
+                if len(ins) > colwidth:
+                    colwidth = len(ins)
+                row += 1
+            sheet.set_column(column_num, column_num, colwidth + 1)
+            return column_num + 1
+
     def get_resources_using_group(self, reportdir):
-        import xlsxwriter
+        try:
+            import xlsxwriter
+        except ImportError as e:
+            xlsxwriter = None
+            exit(f"Missing required dependency: {e.name}")
         import os
         workbook = xlsxwriter.Workbook(os.path.join(os.path.abspath(reportdir), "sg-bad-groups.xlsx"))
         column_title_format = workbook.add_format()
@@ -83,120 +102,57 @@ class SecurityGroupManager:
             resources_using[sg]["elbv2"] = list()
             resources_using[sg]["rds"] = list()
             resources_using[sg]["lambda"] = list()
+            # EC2 Instances
             for inst in self.instances_security_groups:
                 for i, sgs in inst.items():
                     if sg in sgs:
                         resources_using[sg]["instances"].append(i)
-            row = 0
-            if len(resources_using[sg]["instances"]) > 0:
-                worksheet.write(row, col, "EC2 InstanceId", column_title_format)
-                row += 1
-                colwidth = len("EC2 InstanceId")
-                for ins in resources_using[sg]["instances"]:
-                    worksheet.write(row, col, ins)
-                    if len(ins) > colwidth:
-                        colwidth = len(ins)
-                    row += 1
-                worksheet.set_column(col, col, colwidth+1)
-                col += 1
+            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["instances"],
+                                             column_id="EC2 InstanceId", column_format=column_title_format)
+            # Elastic Network Interfaces
             for i in self.eni_security_groups:
                 for e, sgs in i.items():
                     if sg in sgs:
                         resources_using[sg]["eni"].append(e)
-            row = 0
-            if len(resources_using[sg]["eni"]) > 0:
-                worksheet.write(row, col, "ENI Id", column_title_format)
-                row += 1
-                colwidth = len("ENI Id")
-                for ins in resources_using[sg]["eni"]:
-                    worksheet.write(row, col, ins)
-                    if len(ins) > colwidth:
-                        colwidth = len(ins)
-                    row += 1
-                worksheet.set_column(col, col, colwidth+1)
-                col += 1
+            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["eni"],
+                                             column_id="ENI Id", column_format=column_title_format)
+            # ECS Services
             for svc in self.ecs_services:
                 for s, sgs in svc.items():
                     if sg in sgs:
                         resources_using[sg]["ecs"].append(s)
-            row = 0
-            if len(resources_using[sg]["ecs"]) > 0:
-                worksheet.write(row, col, "ECS Service", column_title_format)
-                row += 1
-                colwidth = len("ECS Service")
-                for ins in resources_using[sg]["ecs"]:
-                    worksheet.write(row, col, ins)
-                    if len(ins) > colwidth:
-                        colwidth = len(ins)
-                    row += 1
-                worksheet.set_column(col, col, colwidth+1)
-                col += 1
+            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["ecs"],
+                                             column_id="ECS Service", column_format=column_title_format)
+            # ELBv1
             for elb in self.elb_security_groups:
                 for e1, sgs in elb.items():
                     if sg in sgs:
                         resources_using[sg]["elb"].append(e1)
-            row = 0
-            if len(resources_using[sg]["elb"]) > 0:
-                worksheet.write(row, col, "ELB Id", column_title_format)
-                row += 1
-                colwidth = len("ELB Id")
-                for ins in resources_using[sg]["elb"]:
-                    worksheet.write(row, col, ins)
-                    if len(ins) > colwidth:
-                        colwidth = len(ins)
-                    row += 1
-                worksheet.set_column(col, col, colwidth+1)
-                col += 1
+            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["elb"],
+                                             column_id="ELB Id", column_format=column_title_format)
+            # ELBv2
             for elbv2 in self.elbv2_security_groups:
                 for e2, sgs in elbv2.items():
                     if sg in sgs:
                         resources_using[sg]["elbv2"].append(e2)
-            row = 0
-            if len(resources_using[sg]["elbv2"]) > 0:
-                worksheet.write(row, col, "ELBv2 Id", column_title_format)
-                row += 1
-                colwidth = len("ELBv2 Id")
-                for ins in resources_using[sg]["elbv2"]:
-                    worksheet.write(row, col, ins)
-                    if len(ins) > colwidth:
-                        colwidth = len(ins)
-                    row += 1
-                worksheet.set_column(col, col, colwidth+1)
-                col += 1
+            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["elbv2"],
+                                             column_id="ELBv2 Id", column_format=column_title_format)
+            # RDS Instances
             for rdi in self.rds_security_groups:
                 for r, sgs in rdi.items():
                     if sg in sgs:
                         resources_using[sg]["rds"].append(r)
-            row = 0
-            if len(resources_using[sg]["rds"]) > 0:
-                worksheet.write(row, col, "RDS InstanceId", column_title_format)
-                row += 1
-                colwidth = len("RDS Instance")
-                for ins in resources_using[sg]["rds"]:
-                    worksheet.write(row, col, ins)
-                    if len(ins) > colwidth:
-                        colwidth = len(ins)
-                    row += 1
-                worksheet.set_column(col, col, colwidth+1)
-                col += 1
+            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["rds"],
+                                             column_id="RDS InstanceId", column_format=column_title_format)
+            # Lambda Functions
             for lf in self.lambda_security_groups:
                 for f, sgs in lf.items():
                     if sg in sgs:
                         resources_using[sg]["lambda"].append(f)
-            row = 0
-            if len(resources_using[sg]["lambda"]) > 0:
-                worksheet.write(row, col, "Lambda Function", column_title_format)
-                row += 1
-                colwidth = len("Lambda Function")
-                for ins in resources_using[sg]["lambda"]:
-                    worksheet.write(row, col, ins)
-                    if len(ins) > colwidth:
-                        colwidth = len(ins)
-                    row += 1
-                worksheet.set_column(col, col, colwidth+1)
-                col += 1
+            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["lambda"],
+                                             column_id="Lambda Function", column_format=column_title_format)
         workbook.close()
-        print(f"Report generated and saved at: {os.path.join(os.path.abspath(reportdir), 'sg-bad-groups.xlsx')}")
+        print(f"Report generated and saved to: {os.path.join(os.path.abspath(reportdir), 'sg-bad-groups.xlsx')}")
         return resources_using
 
     def get_unused_groups(self):
@@ -452,17 +408,18 @@ class SecurityGroupManager:
             except botocore.exceptions.ClientError as error:
                 if error.response["Error"]["Code"] == 'DryRunOperation':
                     print(f"DryRunOperation - CreateTags: {error.response['Error']['Message']}")
-            # try:
-            #     load_sg.authorize_ingress(
-            #         DryRun=self.args.dryrun,
-            #         IpPermissions=sg["IpPermissions"]
-            #     )
-            # except botocore.exceptions.ClientError as error:
-            #     if error.response["Error"]["Code"] == 'DryRunOperation':
-            #         print(f"DryRunOperation - AuthorizeIngress: {error.response['Error']['Message']}\n")
+            if self.args.restore_ingress_rules:
+                try:
+                    load_sg.authorize_ingress(
+                        DryRun=self.args.dryrun,
+                        IpPermissions=sg["IpPermissions"]
+                    )
+                except botocore.exceptions.ClientError as error:
+                    if error.response["Error"]["Code"] == 'DryRunOperation':
+                        print(f"DryRunOperation - AuthorizeIngress: {error.response['Error']['Message']}\n")
             print(f"Restored security group: \'{sg['GroupId']}\'")
 
-    # Mark for Deletion, preperation
+    # Mark for Deletion preparation
     def mark_for_deletion(self, ec2, sg):
         import botocore.exceptions
         tag_client = self.aws_connection.client("ec2", region_name=self.aws_region)
@@ -484,11 +441,12 @@ class SecurityGroupManager:
         except botocore.exceptions.ClientError as error:
             if error.response["Error"]["Code"] == 'DryRunOperation':
                 print(f"DryRunOperation - CreateTags: {error.response['Error']['Message']}")
-        # try:
-        #     marked_sg.revoke_ingress(
-        #         DryRun=self.args.dryrun,
-        #         IpPermissions=sg["IpPermissions"]
-        #     )
-        # except botocore.exceptions.ClientError as error:
-        #     if error.response["Error"]["Code"] == 'DryRunOperation':
-        #         print(f"DryRunOperation - RevokeIngress: {error.response['Error']['Message']}\n")
+        if self.args.remove_ingress_rules:
+            try:
+                marked_sg.revoke_ingress(
+                    DryRun=self.args.dryrun,
+                    IpPermissions=sg["IpPermissions"]
+                )
+            except botocore.exceptions.ClientError as error:
+                if error.response["Error"]["Code"] == 'DryRunOperation':
+                    print(f"DryRunOperation - RevokeIngress: {error.response['Error']['Message']}\n")
