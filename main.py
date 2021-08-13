@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 
-import boto3
-import botocore.exceptions
+try:
+    import boto3
+    import botocore.exceptions
+except ImportError as e:
+    boto3, botocore, botocore.exceptions = None, None, None
+    exit("You must install boto3 python module in order to run this tool!")
 import argparse
 import os
 from library.security_group_manager import SecurityGroupManager
