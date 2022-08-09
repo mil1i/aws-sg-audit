@@ -229,7 +229,7 @@ class SecurityGroupManager:
                 for tag in sg["Tags"]:
                     if tag["Key"] == "MarkedForDeletion" and tag["Value"] == "true":
                         self.marked_sgs.append(sg)
-            except KeyError as err:
+            except KeyError:
                 continue
         return self.marked_sgs
 
