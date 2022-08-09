@@ -435,8 +435,8 @@ class SecurityGroupManager:
 
     # Read security group from json dump
     def load_from_file(self, sgdir):
-        import json
         import glob
+        import json
         import os
 
         try:
