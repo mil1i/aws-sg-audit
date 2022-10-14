@@ -17,7 +17,7 @@ Resources evaluated:
 
 
  - **MISSING**: Security group rule entry check
-
+ 
 
 This tool will also locate any security groups will port rules that are open to the public that should not be. The default list of security group rules checked are below, and can be overriden via a flag.
 
