@@ -1,35 +1,33 @@
-
-
 class SecurityGroupManager:
     def __init__(self, args, session):
         self.args = args
         self.aws_connection = session
         self.aws_region = args.region
         self.bad_ports = args.ports
-        self.all_groups = list()
-        self.all_security_groups = list()
-        self.groups_in_use = list()
-        self.bad_groups = list()
-        self.bad_groups_in_use = list()
-        self.delete_groups = list()
-        self.delete_bad_groups = list()
-        self.instances = list()
-        self.instances_security_groups = list()
-        self.elastic_network_instances = list()
-        self.eni_security_groups = list()
-        self.ecs_clusters = list()
-        self.ecs_services = list()
-        self.ecs_security_groups = list()
-        self.elb_lbs = list()
-        self.elb_security_groups = list()
-        self.elbv2_lbs = list()
-        self.elbv2_security_groups = list()
-        self.rds_instances = list()
-        self.rds_security_groups = list()
-        self.lambda_functions = list()
-        self.lambda_security_groups = list()
-        self.marked_sgs = list()
-        self.restore_sgs = list()
+        self.all_groups = []
+        self.all_security_groups = []
+        self.groups_in_use = []
+        self.bad_groups = []
+        self.bad_groups_in_use = []
+        self.delete_groups = []
+        self.delete_bad_groups = []
+        self.instances = []
+        self.instances_security_groups = []
+        self.elastic_network_instances = []
+        self.eni_security_groups = []
+        self.ecs_clusters = []
+        self.ecs_services = []
+        self.ecs_security_groups = []
+        self.elb_lbs = []
+        self.elb_security_groups = []
+        self.elbv2_lbs = []
+        self.elbv2_security_groups = []
+        self.rds_instances = []
+        self.rds_security_groups = []
+        self.lambda_functions = []
+        self.lambda_security_groups = []
+        self.marked_sgs = []
+        self.restore_sgs = []
 
     # Get ALL security groups names
     def get_all_security_groups(self):
@@ -38,19 +36,27 @@ class SecurityGroupManager:
         security_groups_dict = paginator.paginate().build_full_result()
         self.all_security_groups = security_groups_dict["SecurityGroups"]
         for group in self.all_security_groups:
-            if group["GroupName"] in self.args.equals or group["GroupName"].startswith(tuple(self.args.startswith)) \
-                    or group["GroupName"].endswith(tuple(self.args.endswith)):
+            if (
+                group["GroupName"] in self.args.equals
+                or group["GroupName"].startswith(tuple(self.args.startswith))
+                or group["GroupName"].endswith(tuple(self.args.endswith))
+            ):
                 self.groups_in_use.append(group["GroupId"])
             for perm in group["IpPermissions"]:
                 try:
                     if perm["FromPort"] == perm["ToPort"]:
-                        if perm["ToPort"] in self.bad_ports and "0.0.0.0/0" in [ip["CidrIp"] for ip in perm["IpRanges"]]:
+                        if perm["ToPort"] in self.bad_ports and "0.0.0.0/0" in [
+                            ip["CidrIp"] for ip in perm["IpRanges"]
+                        ]:
                             self.bad_groups.append(group["GroupId"])
-                    elif any([bp in range(perm["FromPort"], perm['ToPort']) for bp in self.bad_ports]) \
-                            and "0.0.0.0/0" in [ip["CidrIp"] for ip in perm["IpRanges"]]:
-                        self.bad_groups.append(group['GroupId'])
+                    elif any(
+                        [bp in range(perm["FromPort"], perm["ToPort"]) for bp in self.bad_ports]
+                    ) and "0.0.0.0/0" in [ip["CidrIp"] for ip in perm["IpRanges"]]:
+                        self.bad_groups.append(group["GroupId"])
                 except KeyError:
-                    if perm["IpProtocol"] == "-1" and "0.0.0.0/0" in [ip["CidrIp"] for ip in perm["IpRanges"]]:
+                    if perm["IpProtocol"] == "-1" and "0.0.0.0/0" in [
+                        ip["CidrIp"] for ip in perm["IpRanges"]
+                    ]:
                         self.bad_groups.append(group["GroupId"])
             self.all_groups.append(group["GroupId"])
         return self.all_groups
@@ -82,77 +88,119 @@ class SecurityGroupManager:
         try:
             import xlsxwriter
         except ImportError as e:
+            import sys
+
             xlsxwriter = None
-            exit(f"Missing required dependency: {e.name}")
+            sys.exit(f"Missing required dependency: {e.name}")
         import os
-        workbook = xlsxwriter.Workbook(os.path.join(os.path.abspath(reportdir), "sg-bad-groups.xlsx"))
+
+        workbook = xlsxwriter.Workbook(
+            os.path.join(os.path.abspath(reportdir), "sg-bad-groups.xlsx")
+        )
         column_title_format = workbook.add_format()
         column_title_format.set_bold(True)
         column_title_format.set_bg_color("lime")
         print("Generating report containing security groups with bad rules...")
-        resources_using = dict()
+        resources_using = {}
         for sg in self.bad_groups_in_use:
             worksheet = workbook.add_worksheet(sg)
             col = 0
-            resources_using[sg] = dict()
-            resources_using[sg]["instances"] = list()
-            resources_using[sg]["eni"] = list()
-            resources_using[sg]["ecs"] = list()
-            resources_using[sg]["elb"] = list()
-            resources_using[sg]["elbv2"] = list()
-            resources_using[sg]["rds"] = list()
-            resources_using[sg]["lambda"] = list()
+            resources_using[sg] = {}
+            resources_using[sg]["instances"] = []
+            resources_using[sg]["eni"] = []
+            resources_using[sg]["ecs"] = []
+            resources_using[sg]["elb"] = []
+            resources_using[sg]["elbv2"] = []
+            resources_using[sg]["rds"] = []
+            resources_using[sg]["lambda"] = []
             # EC2 Instances
             for inst in self.instances_security_groups:
                 for i, sgs in inst.items():
                     if sg in sgs:
                         resources_using[sg]["instances"].append(i)
-            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["instances"],
-                                             column_id="EC2 InstanceId", column_format=column_title_format)
+            col = self._populate_xlsx_column(
+                sheet=worksheet,
+                column_num=col,
+                resource=resources_using[sg]["instances"],
+                column_id="EC2 InstanceId",
+                column_format=column_title_format,
+            )
             # Elastic Network Interfaces
             for i in self.eni_security_groups:
                 for e, sgs in i.items():
                     if sg in sgs:
                         resources_using[sg]["eni"].append(e)
-            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["eni"],
-                                             column_id="ENI Id", column_format=column_title_format)
+            col = self._populate_xlsx_column(
+                sheet=worksheet,
+                column_num=col,
+                resource=resources_using[sg]["eni"],
+                column_id="ENI Id",
+                column_format=column_title_format,
+            )
             # ECS Services
             for svc in self.ecs_services:
                 for s, sgs in svc.items():
                     if sg in sgs:
                         resources_using[sg]["ecs"].append(s)
-            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["ecs"],
-                                             column_id="ECS Service", column_format=column_title_format)
+            col = self._populate_xlsx_column(
+                sheet=worksheet,
+                column_num=col,
+                resource=resources_using[sg]["ecs"],
+                column_id="ECS Service",
+                column_format=column_title_format,
+            )
             # ELBv1
             for elb in self.elb_security_groups:
                 for e1, sgs in elb.items():
                     if sg in sgs:
                         resources_using[sg]["elb"].append(e1)
-            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["elb"],
-                                             column_id="ELB Id", column_format=column_title_format)
+            col = self._populate_xlsx_column(
+                sheet=worksheet,
+                column_num=col,
+                resource=resources_using[sg]["elb"],
+                column_id="ELB Id",
+                column_format=column_title_format,
+            )
             # ELBv2
             for elbv2 in self.elbv2_security_groups:
                 for e2, sgs in elbv2.items():
                     if sg in sgs:
                         resources_using[sg]["elbv2"].append(e2)
-            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["elbv2"],
-                                             column_id="ELBv2 Id", column_format=column_title_format)
+            col = self._populate_xlsx_column(
+                sheet=worksheet,
+                column_num=col,
+                resource=resources_using[sg]["elbv2"],
+                column_id="ELBv2 Id",
+                column_format=column_title_format,
+            )
             # RDS Instances
             for rdi in self.rds_security_groups:
                 for r, sgs in rdi.items():
                     if sg in sgs:
                         resources_using[sg]["rds"].append(r)
-            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["rds"],
-                                             column_id="RDS InstanceId", column_format=column_title_format)
+            col = self._populate_xlsx_column(
+                sheet=worksheet,
+                column_num=col,
+                resource=resources_using[sg]["rds"],
+                column_id="RDS InstanceId",
+                column_format=column_title_format,
+            )
             # Lambda Functions
             for lf in self.lambda_security_groups:
                 for f, sgs in lf.items():
                     if sg in sgs:
                         resources_using[sg]["lambda"].append(f)
-            col = self._populate_xlsx_column(sheet=worksheet, column_num=col, resource=resources_using[sg]["lambda"],
-                                             column_id="Lambda Function", column_format=column_title_format)
+            col = self._populate_xlsx_column(
+                sheet=worksheet,
+                column_num=col,
+                resource=resources_using[sg]["lambda"],
+                column_id="Lambda Function",
+                column_format=column_title_format,
+            )
         workbook.close()
-        print(f"Report generated and saved to: {os.path.join(os.path.abspath(reportdir), 'sg-bad-groups.xlsx')}")
+        print(
+            f"Report generated and saved to: {os.path.join(os.path.abspath(reportdir), 'sg-bad-groups.xlsx')}"
+        )
         return resources_using
 
     def get_unused_groups(self):
@@ -181,7 +229,7 @@ class SecurityGroupManager:
                 for tag in sg["Tags"]:
                     if tag["Key"] == "MarkedForDeletion" and tag["Value"] == "true":
                         self.marked_sgs.append(sg)
-            except KeyError as err:
+            except KeyError:
                 continue
         return self.marked_sgs
 
@@ -211,7 +259,7 @@ class SecurityGroupManager:
     # Get all security groups used by instances
     def get_instance_security_groups(self):
         for inst in self._get_instances():
-            sg_in_group = list()
+            sg_in_group = []
             for sg in inst["SecurityGroups"]:
                 self._add_to_groups_in_use(sg["GroupId"])
                 self._find_bad_security_groups(sg["GroupId"])
@@ -229,7 +277,7 @@ class SecurityGroupManager:
     # Security Groups in use by Network Interfaces
     def get_eni_security_groups(self):
         for i in self._get_elastic_network_interfaces():
-            sg_in_group = list()
+            sg_in_group = []
             for sg in i["Groups"]:
                 self._add_to_groups_in_use(sg["GroupId"])
                 self._find_bad_security_groups(sg["GroupId"])
@@ -247,7 +295,7 @@ class SecurityGroupManager:
     # Security groups used by classic ELBs
     def get_elb_security_groups(self):
         for lb in self._get_elb():
-            sg_in_group = list()
+            sg_in_group = []
             for sg in lb["SecurityGroups"]:
                 self._add_to_groups_in_use(sg)
                 self._find_bad_security_groups(sg)
@@ -265,7 +313,7 @@ class SecurityGroupManager:
     # Security groups used by ALBs
     def get_elbv2_security_groups(self):
         for lb in self._get_elbv2():
-            sg_in_group = list()
+            sg_in_group = []
             try:
                 # if i["Type"] == "network":
                 #     continue
@@ -288,7 +336,7 @@ class SecurityGroupManager:
     # Security groups used by RDS
     def get_rds_security_groups(self):
         for rdi in self._get_rds_instances():
-            sg_in_group = list()
+            sg_in_group = []
             for sg in rdi["VpcSecurityGroups"]:
                 self._add_to_groups_in_use(sg["VpcSecurityGroupId"])
                 self._find_bad_security_groups(sg["VpcSecurityGroupId"])
@@ -298,7 +346,7 @@ class SecurityGroupManager:
 
     def _get_lambda_functions(self):
         lambda_client = self.aws_connection.client("lambda", region_name=self.aws_region)
-        paginator = lambda_client.get_paginator('list_functions')
+        paginator = lambda_client.get_paginator("list_functions")
         lambda_functions = paginator.paginate().build_full_result()
         self.lambda_functions = [function for function in lambda_functions["Functions"]]
         return self.lambda_functions
@@ -307,7 +355,7 @@ class SecurityGroupManager:
     def get_lambda_security_groups(self):
         for function in self._get_lambda_functions():
             functionName = function["FunctionName"]
-            sg_in_group = list()
+            sg_in_group = []
             try:
                 functionVpcConfig = function["VpcConfig"]
                 functionSecurityGroupIds = functionVpcConfig["SecurityGroupIds"]
@@ -343,14 +391,19 @@ class SecurityGroupManager:
             for svc in service:
                 sgs_service = []
                 try:
-                    sgs_service = [sg for sg in
-                                   service[svc]["networkConfiguration"]["awsvpcConfiguration"]["securityGroups"]]
+                    sgs_service = list(
+                        service[svc]["networkConfiguration"]["awsvpcConfiguration"][
+                            "securityGroups"
+                        ]
+                    )
                 except KeyError:
                     pass
                 sgs_deployments = []
                 try:
-                    svc_deployments = [deployment["networkConfiguration"]["awsvpcConfiguration"]["securityGroups"]
-                                       for deployment in service[svc]["deployments"]]
+                    svc_deployments = [
+                        deployment["networkConfiguration"]["awsvpcConfiguration"]["securityGroups"]
+                        for deployment in service[svc]["deployments"]
+                    ]
                     sgs_deployments = [sg for sg in svc_deployments]
                 except KeyError:
                     pass
@@ -368,18 +421,24 @@ class SecurityGroupManager:
     def dump_to_file(sgdir, sg):
         import json
         import os
+        import sys
+
         try:
-            fobj = open(os.path.join(os.path.abspath(sgdir), f"{sg['GroupId']}.{sg['GroupName']}.json"), "w+")
+            fobj = open(
+                os.path.join(os.path.abspath(sgdir), f"{sg['GroupId']}.{sg['GroupName']}.json"),
+                "w+",
+            )
             fobj.truncate()
             json.dump(sg, fobj)
         except FileExistsError as err:
-            exit(f"Unable to create file:\n {err}")
+            sys.exit(f"Unable to create file:\n {err}")
 
     # Read security group from json dump
     def load_from_file(self, sgdir):
-        import json
         import glob
+        import json
         import os
+
         try:
             files = [f for f in glob.glob(os.path.join(os.path.abspath(sgdir), "*.json"))]
             for file in files:
@@ -388,65 +447,63 @@ class SecurityGroupManager:
                 self.restore_sgs.append(sgobj)
             return self.restore_sgs
         except FileNotFoundError as err:
-            exit(f"Unable to locate files:\n {err}")
+            import sys
+
+            sys.exit(f"Unable to locate files:\n {err}")
 
     # Restore security groups
     def restore_security_groups(self, ec2):
         import botocore.exceptions
+
         for sg in self.restore_sgs:
             load_sg = ec2.SecurityGroup(sg["GroupId"])
             try:
                 load_sg.create_tags(
                     DryRun=self.args.dryrun,
                     Tags=[
-                        {
-                            "Key": "MarkedForDeletion",
-                            "Value": "false"
-                        },
-                    ]
+                        {"Key": "MarkedForDeletion", "Value": "false"},
+                    ],
                 )
             except botocore.exceptions.ClientError as error:
-                if error.response["Error"]["Code"] == 'DryRunOperation':
+                if error.response["Error"]["Code"] == "DryRunOperation":
                     print(f"DryRunOperation - CreateTags: {error.response['Error']['Message']}")
             if self.args.restore_ingress_rules:
                 try:
                     load_sg.authorize_ingress(
-                        DryRun=self.args.dryrun,
-                        IpPermissions=sg["IpPermissions"]
+                        DryRun=self.args.dryrun, IpPermissions=sg["IpPermissions"]
                     )
                 except botocore.exceptions.ClientError as error:
-                    if error.response["Error"]["Code"] == 'DryRunOperation':
-                        print(f"DryRunOperation - AuthorizeIngress: {error.response['Error']['Message']}\n")
-            print(f"Restored security group: \'{sg['GroupId']}\'")
+                    if error.response["Error"]["Code"] == "DryRunOperation":
+                        print(
+                            f"DryRunOperation - AuthorizeIngress: {error.response['Error']['Message']}\n"
+                        )
+            print(f"Restored security group: '{sg['GroupId']}'")
 
     # Mark for Deletion preparation
     def mark_for_deletion(self, ec2, sg):
         import botocore.exceptions
+
         tag_client = self.aws_connection.client("ec2", region_name=self.aws_region)
         if self.is_marked_for_deletion(tag_client, sg):
-            print(f"security group already marked for deletion: \'{sg['GroupId']}\'")
+            print(f"security group already marked for deletion: '{sg['GroupId']}'")
             return
         marked_sg = ec2.SecurityGroup(sg["GroupId"])
         try:
-            print(f"creating tag to mark security group for deletion: \'{sg['GroupId']}\'")
+            print(f"creating tag to mark security group for deletion: '{sg['GroupId']}'")
             marked_sg.create_tags(
                 DryRun=self.args.dryrun,
                 Tags=[
-                    {
-                        "Key": "MarkedForDeletion",
-                        "Value": "true"
-                    },
-                ]
+                    {"Key": "MarkedForDeletion", "Value": "true"},
+                ],
             )
         except botocore.exceptions.ClientError as error:
-            if error.response["Error"]["Code"] == 'DryRunOperation':
+            if error.response["Error"]["Code"] == "DryRunOperation":
                 print(f"DryRunOperation - CreateTags: {error.response['Error']['Message']}")
         if self.args.remove_ingress_rules:
             try:
-                marked_sg.revoke_ingress(
-                    DryRun=self.args.dryrun,
-                    IpPermissions=sg["IpPermissions"]
-                )
+                marked_sg.revoke_ingress(DryRun=self.args.dryrun, IpPermissions=sg["IpPermissions"])
             except botocore.exceptions.ClientError as error:
-                if error.response["Error"]["Code"] == 'DryRunOperation':
-                    print(f"DryRunOperation - RevokeIngress: {error.response['Error']['Message']}\n")
+                if error.response["Error"]["Code"] == "DryRunOperation":
+                    print(
+                        f"DryRunOperation - RevokeIngress: {error.response['Error']['Message']}\n"
+                    )
